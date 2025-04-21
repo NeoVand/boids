@@ -106,6 +106,8 @@ export const BoidsCanvas = ({
   const programRef = useRef<WebGLProgram | null>(null);
   const trailProgramRef = useRef<WebGLProgram | null>(null);
   const [useWebGL, setUseWebGL] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
   
   // Generate a color palette for boids based on the primary color
   const colorPalette = useMemo(() => generateColorPalette('#4169e1', 5), []);
@@ -143,26 +145,80 @@ export const BoidsCanvas = ({
     const position = getCanvasCoordinates(e);
     if (position) {
       console.log('Valid position on pointer down:', position);
+      setIsDragging(true);
+      setMousePos(position);
       onCursorPositionChange?.(position);
       onAttractionStateChange?.(true);
+      
+      // Apply attraction to ALL boids (not just 20)
+      if (state?.boids) {
+        // Scale attraction force based on the parameter value
+        const attractionScale = state.parameters.attractionForce * 0.1;
+        
+        for (let i = 0; i < state.boids.length; i++) {
+          const boid = state.boids[i];
+          const direction = {
+            x: position.x - boid.position.x,
+            y: position.y - boid.position.y
+          };
+          const distance = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
+          if (distance > 0) {
+            // Apply instant position change - more subtle than before
+            boid.position.x += direction.x * 0.1 * attractionScale;
+            boid.position.y += direction.y * 0.1 * attractionScale;
+            
+            // Set velocity toward cursor - scaled by attraction force
+            boid.velocity.x = (direction.x / distance * 3) * attractionScale;
+            boid.velocity.y = (direction.y / distance * 3) * attractionScale;
+          }
+        }
+      }
     }
-  }, [getCanvasCoordinates, onCursorPositionChange, onAttractionStateChange]);
+  }, [getCanvasCoordinates, onCursorPositionChange, onAttractionStateChange, state]);
   
   // Handle mouse/touch move
   const handlePointerMove = useCallback((e: MouseEvent | TouchEvent) => {
     // Only update position if currently attracting (button/touch is down)
-    if (state.isAttracting) {
+    if (state.isAttracting || isDragging) {
       console.log('PointerMove event while attracting');
       const position = getCanvasCoordinates(e);
       if (position) {
+        setMousePos(position);
         onCursorPositionChange?.(position);
+        
+        // Apply attraction to ALL boids during drag
+        if (state?.boids) {
+          // Scale attraction force based on the parameter value
+          const attractionScale = state.parameters.attractionForce * 0.1; 
+          
+          for (let i = 0; i < state.boids.length; i++) {
+            const boid = state.boids[i];
+            const direction = {
+              x: position.x - boid.position.x,
+              y: position.y - boid.position.y
+            };
+            const distance = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
+            if (distance > 0) {
+              // Apply position change - smoother during drag
+              boid.position.x += direction.x * 0.05 * attractionScale;
+              boid.position.y += direction.y * 0.05 * attractionScale;
+              
+              // Adjust velocity toward cursor - scaled by attraction force and distance
+              // The further away, the stronger the attraction
+              const distanceScale = Math.min(1.0, 100 / distance);
+              boid.velocity.x = (direction.x / distance * 2 * distanceScale) * attractionScale;
+              boid.velocity.y = (direction.y / distance * 2 * distanceScale) * attractionScale;
+            }
+          }
+        }
       }
     }
-  }, [getCanvasCoordinates, onCursorPositionChange, state.isAttracting]);
+  }, [getCanvasCoordinates, onCursorPositionChange, state, isDragging]);
   
   // Handle mouse/touch end (up)
   const handlePointerUp = useCallback(() => {
     console.log('PointerUp event triggered');
+    setIsDragging(false);
     onAttractionStateChange?.(false);
   }, [onAttractionStateChange]);
   
@@ -293,20 +349,45 @@ export const BoidsCanvas = ({
       renderBoidsCanvas2D(canvas, state, colorPalette);
     }
     
-    // Debugging
-    if (state.isAttracting && state.cursorPosition) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        // Draw a highlight at the cursor position
-        ctx.save();
+    // Always draw debugging elements with Canvas2D
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      // Draw debug info
+      ctx.save();
+      
+      // Draw attraction state indicator
+      ctx.font = '14px Arial';
+      ctx.fillStyle = state.isAttracting ? 'lime' : 'red';
+      ctx.fillText(`Attraction: ${state.isAttracting ? 'ON' : 'OFF'} Drag: ${isDragging ? 'ON' : 'OFF'}`, 10, 20);
+      
+      // Draw cursor position if available
+      if (mousePos) {
+        ctx.fillStyle = 'yellow';
+        ctx.fillText(`Mouse: ${Math.round(mousePos.x)},${Math.round(mousePos.y)}`, 10, 40);
+        
+        // Draw a large target at cursor position
         ctx.beginPath();
-        ctx.arc(state.cursorPosition.x, state.cursorPosition.y, 10, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 0, 0.5)';
-        ctx.fill();
-        ctx.restore();
+        ctx.arc(mousePos.x, mousePos.y, 20, 0, Math.PI * 2);
+        ctx.strokeStyle = 'yellow';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Draw cross
+        ctx.beginPath();
+        ctx.moveTo(mousePos.x - 20, mousePos.y);
+        ctx.lineTo(mousePos.x + 20, mousePos.y);
+        ctx.moveTo(mousePos.x, mousePos.y - 20);
+        ctx.lineTo(mousePos.x, mousePos.y + 20);
+        ctx.stroke();
       }
+      
+      // Add attraction force indicator
+      ctx.fillStyle = 'white';
+      ctx.fillText(`Attraction Force: ${state.parameters.attractionForce.toFixed(1)}`, 10, 60);
+      
+      ctx.restore();
     }
-  }, [state, colorPalette, useWebGL]);
+  }, [state, colorPalette, useWebGL, mousePos, isDragging]);
   
   return (
     <canvas
