@@ -16,7 +16,8 @@ The simulation features spatial partitioning for performance optimization, allow
 - **High-performance WebGL rendering** with Canvas2D fallback
 - **Interactive controls** to adjust simulation parameters in real-time
 - **Mouse/touch interaction** to attract boids to cursor position
-- **Multiple particle types**: disk, dot, arrow, and trail visualizations
+- **Multiple particle types**: disk, dot, and trail visualizations
+- **Dynamic colorization modes** based on speed, orientation, neighbors, and more
 - **Optimized with spatial partitioning** for O(n) instead of O(n²) performance
 - **Responsive design** that works on desktop and mobile devices
 - **Edge behaviors**: wrap, bounce, or avoid
@@ -62,8 +63,9 @@ npm run dev
 
 ## Controls
 
-- **Type**: Choose between disk, dot, arrow, or trail visualization
+- **Type**: Choose between disk, dot, or trail visualization
 - **Edge**: Select wrap, bounce, or avoid behavior at simulation boundaries
+- **Colorize**: Select coloring mode (default, speed, orientation, random, neighbors)
 - **Alignment**: How strongly boids align with neighbors
 - **Cohesion**: How strongly boids are attracted to flock center
 - **Separation**: How strongly boids avoid neighbors
@@ -72,8 +74,15 @@ npm run dev
 - **Attraction**: Strength of attraction to cursor when clicked
 - **Trail Length**: Length of trail when using trail visualization
 - **Population**: Number of boids to simulate
-- **Show Radius**: Toggle visualization of perception radius
 - **Reset**: Reset the simulation with current settings
+
+## Colorization Modes
+
+- **Default**: Uses a preset color palette based on boid ID
+- **Speed**: Colors boids from blue (slow) to red (fast) based on velocity
+- **Orientation**: Colors boids based on their direction of movement
+- **Random**: Assigns consistent random colors based on boid ID
+- **Neighbors**: Colors boids based on how many neighbors they have (blue for few, red for many)
 
 ## How It Works
 
@@ -107,7 +116,7 @@ src/
 - For best performance, use a device with WebGL support
 - Reduce the population size on lower-powered devices
 - Trail visualization is more performance-intensive than other types
-- Showing perception radius impacts performance with large populations
+- Use the colorization modes to better visualize boid behavior
 
 ## Credits and Acknowledgments
 
