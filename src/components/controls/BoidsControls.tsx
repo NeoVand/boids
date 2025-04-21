@@ -1,32 +1,25 @@
-import { useState, useId, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
-  Button,
   Card,
-  CardContent,
-  FormControl,
-  FormControlLabel,
-  InputLabel,
-  MenuItem,
-  Select,
-  SelectChangeEvent,
-  Slider,
-  Stack,
-  Switch,
+  IconButton,
   Typography,
+  Slider,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Switch,
+  FormControlLabel,
+  Button,
   Tooltip,
   alpha,
-  IconButton,
-  Collapse,
-  Fade,
 } from '@mui/material';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import InfoIcon from '@mui/icons-material/Info';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import SettingsIcon from '@mui/icons-material/Settings';
+import InfoIcon from '@mui/icons-material/Info';
 import { BoidsParameters, BoidsState, ParticleType } from '../../utils/boids';
 import React from 'react';
 
@@ -37,90 +30,58 @@ interface BoidsControlsProps {
   onToggleRunning: () => void;
   onTogglePerceptionRadius: () => void;
   onReset: (count?: number) => void;
-  onBoidsCountChange?: (count: number) => void;
+  isCollapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  onPopulationChange?: (count: number) => void;
 }
 
-// Common styles for consistent theming
-const uiStyles = {
-  backgroundColor: alpha('#080808', 0.55),
-  backdropFilter: 'blur(16px)',
-  borderColor: alpha('#ffffff', 0.05),
-  boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-};
-
-// Helper component for slider with tooltip
-interface SliderWithTooltipProps { 
+// Compact slider with label and value
+const CompactSlider = ({ 
+  label, 
+  value, 
+  min, 
+  max, 
+  step,
+  onChange,
+  tooltip
+}: { 
   label: string;
   value: number;
-  onChange: (event: Event, value: number | number[]) => void;
-  onChangeCommitted?: (event: React.SyntheticEvent | Event, value: number | number[]) => void;
   min: number;
   max: number;
   step: number;
+  onChange: (event: Event, value: number | number[]) => void;
   tooltip: string;
-}
-
-const SliderWithTooltip = ({ 
-  label, 
-  value, 
-  onChange, 
-  onChangeCommitted,
-  min, 
-  max, 
-  step, 
-  tooltip
-}: SliderWithTooltipProps) => {
-  const id = useId();
-  
+}) => {
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-        <Typography id={id} variant="caption" fontWeight="medium" color="text.primary">
-          {label}
+    <Box sx={{ mb: 1.5 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
+            {label}
+          </Typography>
+          <Tooltip title={tooltip} arrow placement="top">
+            <InfoIcon sx={{ ml: 0.5, fontSize: '0.75rem', color: 'primary.main', opacity: 0.7 }} />
+          </Tooltip>
+        </Box>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+          {value}
         </Typography>
-        <Tooltip title={tooltip} arrow placement="top">
-          <InfoIcon 
-            sx={{ 
-              ml: 0.5, 
-              fontSize: 12, 
-              color: 'text.secondary',
-              cursor: 'help'
-            }} 
-          />
-        </Tooltip>
       </Box>
       <Slider
-        aria-labelledby={id}
+        size="small"
         value={value}
-        onChange={onChange}
-        onChangeCommitted={onChangeCommitted}
         min={min}
         max={max}
         step={step}
-        valueLabelDisplay="auto"
-        size="small"
+        onChange={onChange}
         sx={{
           color: 'primary.main',
-          '& .MuiSlider-valueLabel': {
-            backgroundColor: 'primary.dark',
-            fontSize: '0.7rem',
-            padding: '2px 4px',
-          },
+          height: 4,
           '& .MuiSlider-thumb': {
-            width: 8,
-            height: 8,
-            '&:hover, &.Mui-focusVisible': {
-              boxShadow: `0px 0px 0px 6px ${alpha('#4169e1', 0.16)}`
-            }
-          },
-          '& .MuiSlider-rail': {
-            opacity: 0.3,
-          },
-          '& .MuiSlider-track': {
-            height: 2,
-          },
-          py: 0,
-          mt: -0.5,
+            width: 12,
+            height: 12,
+          }
         }}
       />
     </Box>
@@ -134,13 +95,11 @@ export const BoidsControls = ({
   onToggleRunning,
   onTogglePerceptionRadius,
   onReset,
-  onBoidsCountChange,
+  isCollapsed = false,
+  onToggleCollapsed,
+  onPopulationChange,
 }: BoidsControlsProps) => {
   const [boidsCount, setBoidsCount] = useState<number>(state.boids.length);
-  const [expanded, setExpanded] = useState<boolean>(true);
-  const particleTypeId = useId();
-  const edgeBehaviorId = useId();
-  const showRadiusId = useId();
   
   // Update local count when boids count changes externally
   useEffect(() => {
@@ -154,296 +113,274 @@ export const BoidsControls = ({
     onParameterChange({ [name]: value as number });
   };
 
-  const handleParticleTypeChange = (event: SelectChangeEvent) => {
+  const handleParticleTypeChange = (event: React.ChangeEvent<{ value: unknown }>) => {
     onParticleTypeChange(event.target.value as ParticleType);
+  };
+
+  const handleReset = () => {
+    onReset(boidsCount);
   };
 
   const handleBoidsCountChange = (_event: Event, value: number | number[]) => {
     const newCount = value as number;
     setBoidsCount(newCount);
     
-    // Use the efficient direct method if available
-    if (onBoidsCountChange) {
-      onBoidsCountChange(newCount);
+    // Update population immediately if handler provided
+    if (onPopulationChange) {
+      onPopulationChange(newCount);
     }
-  };
-  
-  const handleBoidsCountChangeCommitted = (_event: React.SyntheticEvent | Event, value: number | number[]) => {
-    // Only update when slider interaction ends if direct method is not available
-    if (!onBoidsCountChange) {
-      onReset(value as number);
-    }
-  };
-
-  const handleResetClick = () => {
-    onReset(boidsCount);
-  };
-
-  const handleEdgeBehaviorChange = (event: SelectChangeEvent) => {
-    onParameterChange({
-      edgeBehavior: event.target.value as 'wrap' | 'bounce' | 'avoid',
-    });
-  };
-
-  const toggleExpanded = () => {
-    setExpanded(!expanded);
   };
 
   return (
-    <Fade in timeout={300}>
-      <Card
-        elevation={3}
-        sx={{
-          position: 'absolute',
-          top: { xs: 8, sm: 12 },
-          right: { xs: 8, sm: 12 },
-          width: { xs: expanded ? 'calc(100% - 16px)' : 'auto', sm: expanded ? 280 : 'auto' },
-          maxWidth: '100%',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-          ...uiStyles,
-          borderRadius: 1.5,
-          border: '1px solid',
-          transition: 'width 0.3s ease-in-out, background-color 0.3s ease',
-          '&::-webkit-scrollbar': {
-            width: '4px',
-          },
-          '&::-webkit-scrollbar-track': {
-            background: 'transparent',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            backgroundColor: alpha('#ffffff', 0.1),
-            borderRadius: '2px',
-          },
-        }}
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            px: { xs: 1, sm: 1.5 },
-            py: { xs: 0.75, sm: 1 },
-            borderBottom: expanded ? `1px solid ${alpha('#ffffff', 0.05)}` : 'none',
+    <div>
+      {/* Gear button for collapsed state */}
+      {isCollapsed && (
+        <IconButton 
+          size="small" 
+          onClick={onToggleCollapsed}
+          sx={{ 
+            backgroundColor: 'rgba(20, 20, 35, 0.5)',
+            backdropFilter: 'blur(10px)',
+            color: 'rgba(255,255,255,0.9)',
+            border: '1px solid rgba(100, 100, 150, 0.2)',
+            width: 38,
+            height: 38,
+            '&:hover': {
+              backgroundColor: 'rgba(30, 30, 50, 0.6)',
+            }
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <IconButton 
-              onClick={toggleExpanded}
-              aria-expanded={expanded}
-              aria-label={expanded ? "Collapse controls" : "Expand controls"}
-              size="small"
-              sx={{ mr: 0.5, p: 0.5 }}
-            >
-              {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-            </IconButton>
-            <Typography 
-              variant="subtitle2" 
-              fontWeight="medium" 
-              color="primary.main"
-              sx={{ 
-                display: 'flex', 
-                alignItems: 'center',
-                fontSize: { xs: '0.75rem', sm: '0.85rem' }
-              }}
-            >
-              {!expanded && <SettingsIcon sx={{ mr: 0.5, fontSize: '0.9rem' }} />}
-              {expanded ? 'Boids Controls' : 'Controls'}
-            </Typography>
-          </Box>
-          
-          <Box>
+          <SettingsIcon fontSize="small" />
+        </IconButton>
+      )}
+      
+      {/* Full controls panel */}
+      {!isCollapsed && (
+        <Card 
+          elevation={3}
+          sx={{
+            width: 240,
+            backgroundColor: 'rgba(20, 20, 30, 0.5)',
+            backdropFilter: 'blur(15px)',
+            color: 'white',
+            borderRadius: '4px',
+            overflow: 'hidden',
+            transition: 'all 0.3s ease-in-out',
+            border: '1px solid',
+            borderColor: 'rgba(100, 100, 150, 0.2)'
+          }}
+        >
+          {/* Header bar with collapse toggle */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              p: 1,
+              backgroundColor: 'rgba(30, 30, 45, 0.5)',
+              borderBottom: '1px solid rgba(100, 100, 150, 0.2)',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <IconButton 
+                size="small" 
+                sx={{ mr: 1, color: 'rgba(255,255,255,0.9)' }}
+                onClick={onToggleCollapsed}
+              >
+                <SettingsIcon fontSize="small" />
+              </IconButton>
+              <Typography variant="subtitle2" sx={{ fontWeight: 500, color: 'rgba(255,255,255,0.95)' }}>
+                Boids Controls
+              </Typography>
+            </Box>
+            
             <IconButton
-              color="primary"
               size="small"
+              color={state.isRunning ? "error" : "success"}
               onClick={onToggleRunning}
-              aria-label={state.isRunning ? "Pause simulation" : "Play simulation"}
-              sx={{
-                p: 0.75,
+              sx={{ 
                 backgroundColor: alpha(state.isRunning ? '#f44336' : '#4caf50', 0.1),
-                '&:hover': {
-                  backgroundColor: alpha(state.isRunning ? '#f44336' : '#4caf50', 0.2),
-                }
+                width: 28,
+                height: 28
               }}
             >
               {state.isRunning ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
             </IconButton>
           </Box>
-        </Box>
 
-        <Collapse in={expanded}>
-          <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
-            <Stack spacing={1.5}>
-              {/* Particle Type & Edge Behavior Row */}
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <FormControl size="small" sx={{ flex: 1 }}>
-                  <InputLabel id={particleTypeId} sx={{ fontSize: '0.75rem' }}>Type</InputLabel>
-                  <Select
-                    labelId={particleTypeId}
-                    id="particle-type-select"
-                    value={state.particleType}
-                    label="Type"
-                    onChange={handleParticleTypeChange}
-                    sx={{ 
-                      fontSize: '0.75rem',
-                      '.MuiSelect-select': { 
-                        py: 0.75,
-                      }
-                    }}
-                  >
-                    <MenuItem value="disk" sx={{ fontSize: '0.75rem' }}>Disk</MenuItem>
-                    <MenuItem value="dot" sx={{ fontSize: '0.75rem' }}>Dot</MenuItem>
-                    <MenuItem value="arrow" sx={{ fontSize: '0.75rem' }}>Arrow</MenuItem>
-                    <MenuItem value="trail" sx={{ fontSize: '0.75rem' }}>Trail</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl size="small" sx={{ flex: 1 }}>
-                  <InputLabel id={edgeBehaviorId} sx={{ fontSize: '0.75rem' }}>Edge</InputLabel>
-                  <Select
-                    labelId={edgeBehaviorId}
-                    id="edge-behavior-select"
-                    value={state.parameters.edgeBehavior}
-                    label="Edge"
-                    onChange={handleEdgeBehaviorChange}
-                    sx={{ 
-                      fontSize: '0.75rem',
-                      '.MuiSelect-select': { 
-                        py: 0.75,
-                      }
-                    }}
-                  >
-                    <MenuItem value="wrap" sx={{ fontSize: '0.75rem' }}>Wrap</MenuItem>
-                    <MenuItem value="bounce" sx={{ fontSize: '0.75rem' }}>Bounce</MenuItem>
-                    <MenuItem value="avoid" sx={{ fontSize: '0.75rem' }}>Avoid</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-
-              {/* Parameters Sliders */}
-              <SliderWithTooltip
-                label="Alignment"
-                value={state.parameters.alignmentForce}
-                onChange={handleSliderChange('alignmentForce')}
-                min={0}
-                max={2}
-                step={0.1}
-                tooltip="How strongly boids align with neighbors"
-              />
-
-              <SliderWithTooltip
-                label="Cohesion" 
-                value={state.parameters.cohesionForce}
-                onChange={handleSliderChange('cohesionForce')}
-                min={0}
-                max={2}
-                step={0.1}
-                tooltip="How strongly boids are attracted to flock center"
-              />
-
-              <SliderWithTooltip
-                label="Separation"
-                value={state.parameters.separationForce}
-                onChange={handleSliderChange('separationForce')}
-                min={0}
-                max={3}
-                step={0.1}
-                tooltip="How strongly boids avoid neighbors"
-              />
-
-              <SliderWithTooltip
-                label="Perception"
-                value={state.parameters.perceptionRadius}
-                onChange={handleSliderChange('perceptionRadius')}
-                min={10}
-                max={200}
-                step={5}
-                tooltip="How far each boid can see"
-              />
-
-              <SliderWithTooltip
-                label="Max Speed"
-                value={state.parameters.maxSpeed}
-                onChange={handleSliderChange('maxSpeed')}
-                min={1}
-                max={10}
-                step={0.5}
-                tooltip="Maximum velocity of boids"
-              />
-
-              <SliderWithTooltip
-                label="Attraction"
-                value={state.parameters.attractionForce}
-                onChange={handleSliderChange('attractionForce')}
-                min={0}
-                max={5}
-                step={0.5}
-                tooltip="Strength of attraction to cursor when clicked"
-              />
-
-              <SliderWithTooltip
+          {/* All controls */}
+          <Box sx={{ p: 1.5 }}>
+            {/* Type and Edge selectors */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+              {/* Type selector */}
+              <FormControl size="small" fullWidth variant="outlined" sx={{ 
+                '.MuiOutlinedInput-notchedOutline': { 
+                  borderColor: 'rgba(100, 100, 150, 0.3)' 
+                }
+              }}>
+                <InputLabel id="type-select-label" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>Type</InputLabel>
+                <Select
+                  labelId="type-select-label"
+                  value={state.particleType}
+                  onChange={handleParticleTypeChange as any}
+                  label="Type"
+                  sx={{ 
+                    color: 'white', 
+                    fontSize: '0.75rem',
+                    '.MuiSelect-select': { 
+                      py: 0.75 
+                    }
+                  }}
+                >
+                  <MenuItem value="disk">Disk</MenuItem>
+                  <MenuItem value="dot">Dot</MenuItem>
+                  <MenuItem value="arrow">Arrow</MenuItem>
+                  <MenuItem value="trail">Trail</MenuItem>
+                </Select>
+              </FormControl>
+              
+              {/* Edge behavior selector */}
+              <FormControl size="small" fullWidth variant="outlined" sx={{ 
+                '.MuiOutlinedInput-notchedOutline': { 
+                  borderColor: 'rgba(100, 100, 150, 0.3)' 
+                }
+              }}>
+                <InputLabel id="edge-select-label" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>Edge</InputLabel>
+                <Select
+                  labelId="edge-select-label"
+                  value={state.parameters.edgeBehavior}
+                  onChange={(e) => onParameterChange({ edgeBehavior: e.target.value as any })}
+                  label="Edge"
+                  sx={{ 
+                    color: 'white', 
+                    fontSize: '0.75rem',
+                    '.MuiSelect-select': { 
+                      py: 0.75 
+                    }
+                  }}
+                >
+                  <MenuItem value="wrap">Wrap</MenuItem>
+                  <MenuItem value="bounce">Bounce</MenuItem>
+                  <MenuItem value="avoid">Avoid</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+              
+            {/* Behavior Sliders */}
+            <CompactSlider
+              label="Alignment"
+              value={state.parameters.alignmentForce}
+              min={0}
+              max={2}
+              step={0.1}
+              onChange={handleSliderChange('alignmentForce')}
+              tooltip="How strongly boids align with neighbors"
+            />
+            
+            <CompactSlider
+              label="Cohesion"
+              value={state.parameters.cohesionForce}
+              min={0}
+              max={2}
+              step={0.1}
+              onChange={handleSliderChange('cohesionForce')}
+              tooltip="How strongly boids are attracted to the flock center"
+            />
+            
+            <CompactSlider
+              label="Separation"
+              value={state.parameters.separationForce}
+              min={0}
+              max={3}
+              step={0.1}
+              onChange={handleSliderChange('separationForce')}
+              tooltip="How strongly boids avoid each other"
+            />
+            
+            <CompactSlider
+              label="Perception"
+              value={state.parameters.perceptionRadius}
+              min={10}
+              max={200}
+              step={5}
+              onChange={handleSliderChange('perceptionRadius')}
+              tooltip="How far boids can see"
+            />
+            
+            <CompactSlider
+              label="Max Speed"
+              value={state.parameters.maxSpeed}
+              min={1}
+              max={10}
+              step={0.5}
+              onChange={handleSliderChange('maxSpeed')}
+              tooltip="Maximum velocity of boids"
+            />
+            
+            <CompactSlider
+              label="Attraction"
+              value={state.parameters.attractionForce}
+              min={0}
+              max={5}
+              step={0.5}
+              onChange={handleSliderChange('attractionForce')}
+              tooltip="Strength of attraction to cursor"
+            />
+            
+            {state.particleType === 'trail' && (
+              <CompactSlider
                 label="Trail Length"
                 value={state.parameters.trailLength}
-                onChange={handleSliderChange('trailLength')}
                 min={2}
                 max={30}
                 step={1}
-                tooltip="Length of trail for trail type"
+                onChange={handleSliderChange('trailLength')}
+                tooltip="Length of history trail"
               />
-
-              <SliderWithTooltip
-                label="Population"
-                value={boidsCount}
-                onChange={handleBoidsCountChange}
-                onChangeCommitted={handleBoidsCountChangeCommitted}
-                min={10}
-                max={10000}
-                step={10}
-                tooltip="Number of boids to simulate"
+            )}
+            
+            <CompactSlider
+              label="Population"
+              value={boidsCount}
+              min={10}
+              max={2000}
+              step={10}
+              onChange={handleBoidsCountChange}
+              tooltip="Number of boids to simulate"
+            />
+            
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+              <FormControlLabel
+                control={
+                  <Switch 
+                    size="small" 
+                    checked={state.showPerceptionRadius} 
+                    onChange={onTogglePerceptionRadius}
+                    sx={{ mr: 0.5 }}
+                  />
+                }
+                label={<Typography variant="caption">Show Radius</Typography>}
+                sx={{ m: 0 }}
               />
-
-              {/* Toggles and Buttons */}
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      id={showRadiusId}
-                      checked={state.showPerceptionRadius}
-                      onChange={onTogglePerceptionRadius}
-                      color="primary"
-                      size="small"
-                    />
-                  }
-                  label={
-                    <Typography variant="caption" color="text.primary">
-                      Show Radius
-                    </Typography>
-                  }
-                  sx={{ m: 0 }}
-                />
-                
-                <Button
-                  variant="outlined"
-                  color="secondary"
-                  startIcon={<RestartAltIcon fontSize="small" />}
-                  onClick={handleResetClick}
-                  aria-label={`Reset with ${boidsCount} boids`}
-                  size="small"
-                  sx={{
-                    fontWeight: 'medium',
-                    textTransform: 'none',
-                    fontSize: '0.7rem',
-                    py: 0.5,
-                    ml: 'auto',
-                  }}
-                >
-                  Reset
-                </Button>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Collapse>
-      </Card>
-    </Fade>
+              
+              <Button
+                variant="outlined"
+                size="small"
+                color="secondary"
+                startIcon={<RestartAltIcon />}
+                onClick={handleReset}
+                sx={{ 
+                  fontSize: '0.75rem', 
+                  py: 0.5,
+                  textTransform: 'none'
+                }}
+              >
+                Reset
+              </Button>
+            </Box>
+          </Box>
+        </Card>
+      )}
+    </div>
   );
 }; 

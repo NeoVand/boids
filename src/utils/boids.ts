@@ -28,8 +28,8 @@ export interface BoidsParameters {
   maxForce: number;
   edgeBehavior: 'wrap' | 'bounce' | 'avoid';
   edgeMargin: number;
-  trailLength: number; // Added for configurable trail length
-  attractionForce: number; // Force towards cursor when clicked/touched
+  trailLength: number;
+  attractionForce: number;
 }
 
 export type ParticleType = 'disk' | 'trail' | 'arrow' | 'dot';
@@ -44,8 +44,8 @@ export interface BoidsState {
   showPerceptionRadius: boolean;
   spatialGrid: Map<string, number[]>; // Spatial partitioning grid: cell key -> array of boid indices
   gridCellSize: number;
-  cursorPosition: Vector2D | null; // Position of cursor when clicked/touched
-  isAttracting: boolean; // Whether the attraction force is active
+  cursorPosition: Vector2D | null;
+  isAttracting: boolean;
 }
 
 export const DEFAULT_PARAMETERS: BoidsParameters = {
@@ -58,38 +58,51 @@ export const DEFAULT_PARAMETERS: BoidsParameters = {
   edgeBehavior: 'wrap',
   edgeMargin: 50,
   trailLength: 10,
-  attractionForce: 1.0, // Default attraction force
+  attractionForce: 1.0,
 };
+
+// Performance optimization - reuse vectors
+const tmpVec1 = { x: 0, y: 0 };
 
 // Create a spatial grid key from position
-const getGridCellKey = (x: number, y: number, cellSize: number): string => {
-  const gridX = Math.floor(x / cellSize);
-  const gridY = Math.floor(y / cellSize);
-  return `${gridX},${gridY}`;
-};
 
-// Update the spatial grid with boid positions
+// Update the spatial grid with boid positions - optimized to reduce memory allocation
 const updateSpatialGrid = (
   boids: Boid[],
-  cellSize: number
+  cellSize: number,
+  existingGrid?: Map<string, number[]>
 ): Map<string, number[]> => {
-  const grid = new Map<string, number[]>();
+  // Reuse existing grid if provided
+  const grid = existingGrid || new Map<string, number[]>();
+  
+  // Clear existing grid entries instead of creating a new map
+  if (existingGrid) {
+    grid.forEach((arr) => {
+      arr.length = 0; // Clear array without allocating new one
+    });
+  }
   
   for (let i = 0; i < boids.length; i++) {
     const boid = boids[i];
-    const cellKey = getGridCellKey(boid.position.x, boid.position.y, cellSize);
+    const gridX = Math.floor(boid.position.x / cellSize);
+    const gridY = Math.floor(boid.position.y / cellSize);
+    const cellKey = `${gridX},${gridY}`;
     
     boid.gridCell = cellKey;
     
-    if (!grid.has(cellKey)) {
-      grid.set(cellKey, [i]);
-    } else {
-      grid.get(cellKey)!.push(i);
+    let cell = grid.get(cellKey);
+    if (!cell) {
+      cell = [];
+      grid.set(cellKey, cell);
     }
+    cell.push(i);
   }
   
   return grid;
 };
+
+// Cache neighboring cell calculations
+const cellCache = new Map<string, string[]>();
 
 // Get neighboring cells for a given position
 const getNeighboringCells = (
@@ -101,6 +114,17 @@ const getNeighboringCells = (
   const radiusCells = Math.ceil(radius / cellSize);
   const cellX = Math.floor(x / cellSize);
   const cellY = Math.floor(y / cellSize);
+  
+  // Create cache key
+  const cacheKey = `${cellX},${cellY},${radiusCells}`;
+  
+  // Check cache
+  const cached = cellCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  
+  // Create new array only if not in cache
   const cells: string[] = [];
   
   for (let i = -radiusCells; i <= radiusCells; i++) {
@@ -109,16 +133,30 @@ const getNeighboringCells = (
     }
   }
   
+  // Store in cache for future use
+  if (cellCache.size > 1000) {
+    // Prevent unbounded growth
+    const firstKey = cellCache.keys().next().value;
+    if (firstKey !== undefined) {
+      cellCache.delete(firstKey);
+    }
+  }
+  cellCache.set(cacheKey, cells);
+  
   return cells;
 };
 
-// Get nearby boid indices using spatial grid
+// Get nearby boid indices using spatial grid - optimized to reuse arrays
 const getNearbyBoidIndices = (
   boid: Boid,
   grid: Map<string, number[]>,
   cellSize: number,
-  radius: number
+  radius: number,
+  resultArray: number[] = []
 ): number[] => {
+  // Clear the result array instead of creating a new one
+  resultArray.length = 0;
+  
   const neighboringCells = getNeighboringCells(
     boid.position.x,
     boid.position.y,
@@ -126,16 +164,16 @@ const getNearbyBoidIndices = (
     radius
   );
   
-  const nearbyIndices: number[] = [];
-  
   for (const cell of neighboringCells) {
     const cellBoids = grid.get(cell);
     if (cellBoids) {
-      nearbyIndices.push(...cellBoids);
+      for (let i = 0; i < cellBoids.length; i++) {
+        resultArray.push(cellBoids[i]);
+      }
     }
   }
   
-  return nearbyIndices;
+  return resultArray;
 };
 
 /**
@@ -163,6 +201,9 @@ export const createBoid = (
   };
 };
 
+// Cached arrays for neighboring boids
+const nearbyIndicesCache: number[] = [];
+
 /**
  * Create an initial state with a given number of boids
  */
@@ -172,7 +213,7 @@ export const createInitialState = (
   canvasHeight: number
 ): BoidsState => {
   const boids: Boid[] = [];
-  const cellSize = DEFAULT_PARAMETERS.perceptionRadius; // Use perception radius as cell size for optimal performance
+  const cellSize = DEFAULT_PARAMETERS.perceptionRadius;
 
   for (let i = 0; i < numBoids; i++) {
     boids.push(createBoid(i, canvasWidth, canvasHeight, DEFAULT_PARAMETERS.trailLength));
@@ -183,7 +224,7 @@ export const createInitialState = (
 
   return {
     boids,
-    parameters: DEFAULT_PARAMETERS,
+    parameters: { ...DEFAULT_PARAMETERS }, // Clone to avoid reference issues
     canvasWidth,
     canvasHeight,
     particleType: 'disk',
@@ -196,55 +237,71 @@ export const createInitialState = (
   };
 };
 
-// Vector operations
-export const add = (v1: Vector2D, v2: Vector2D): Vector2D => {
-  return { x: v1.x + v2.x, y: v1.y + v2.y };
+// Optimized vector operations that modify inputs rather than creating new objects
+// This significantly reduces garbage collection pressure
+
+// Add v2 to v1 in-place
+export const addInPlace = (v1: Vector2D, v2: Vector2D): Vector2D => {
+  v1.x += v2.x;
+  v1.y += v2.y;
+  return v1;
 };
 
-export const subtract = (v1: Vector2D, v2: Vector2D): Vector2D => {
-  return { x: v1.x - v2.x, y: v1.y - v2.y };
+// Subtract v2 from v1 in-place
+export const subtractInPlace = (v1: Vector2D, v2: Vector2D, result: Vector2D): Vector2D => {
+  result.x = v1.x - v2.x;
+  result.y = v1.y - v2.y;
+  return result;
 };
 
-export const multiply = (v: Vector2D, scalar: number): Vector2D => {
-  return { x: v.x * scalar, y: v.y * scalar };
+// Multiply v by scalar in-place
+export const multiplyInPlace = (v: Vector2D, scalar: number): Vector2D => {
+  v.x *= scalar;
+  v.y *= scalar;
+  return v;
 };
 
-export const divide = (v: Vector2D, scalar: number): Vector2D => {
-  if (scalar === 0) return { x: 0, y: 0 };
-  return { x: v.x / scalar, y: v.y / scalar };
+// Set vector values
+export const setVector = (v: Vector2D, x: number, y: number): Vector2D => {
+  v.x = x;
+  v.y = y;
+  return v;
 };
 
-export const magnitude = (v: Vector2D): number => {
-  return Math.sqrt(v.x * v.x + v.y * v.y);
-};
-
+// Square of magnitude (avoids sqrt for performance)
 export const magnitudeSq = (v: Vector2D): number => {
   return v.x * v.x + v.y * v.y;
 };
 
+// Square of distance (avoids sqrt for performance)
 export const distanceSq = (v1: Vector2D, v2: Vector2D): number => {
   const dx = v1.x - v2.x;
   const dy = v1.y - v2.y;
   return dx * dx + dy * dy;
 };
 
-export const normalize = (v: Vector2D): Vector2D => {
-  const mag = magnitude(v);
-  if (mag === 0) return { x: 0, y: 0 };
-  return divide(v, mag);
-};
-
-export const limit = (v: Vector2D, max: number): Vector2D => {
-  const magSq = magnitudeSq(v);
-  if (magSq > max * max) {
-    const mag = Math.sqrt(magSq);
-    return { x: (v.x / mag) * max, y: (v.y / mag) * max };
+// Normalize a vector in-place
+export const normalizeInPlace = (v: Vector2D): Vector2D => {
+  const mag = Math.sqrt(v.x * v.x + v.y * v.y);
+  if (mag > 0.0001) {
+    v.x /= mag;
+    v.y /= mag;
+  } else {
+    v.x = 0;
+    v.y = 0;
   }
   return v;
 };
 
-export const distance = (v1: Vector2D, v2: Vector2D): number => {
-  return Math.sqrt(distanceSq(v1, v2));
+// Limit magnitude of a vector in-place
+export const limitInPlace = (v: Vector2D, max: number): Vector2D => {
+  const magSq = v.x * v.x + v.y * v.y;
+  if (magSq > max * max) {
+    const mag = Math.sqrt(magSq);
+    v.x = (v.x / mag) * max;
+    v.y = (v.y / mag) * max;
+  }
+  return v;
 };
 
 /**
@@ -254,9 +311,13 @@ export const align = (
   boid: Boid,
   boids: Boid[],
   nearbyIndices: number[],
-  parameters: BoidsParameters
+  parameters: BoidsParameters,
+  result: Vector2D
 ): Vector2D => {
-  const steering = { x: 0, y: 0 };
+  // Initialize result vector
+  result.x = 0;
+  result.y = 0;
+  
   let total = 0;
   const perceptionRadiusSq = parameters.perceptionRadius * parameters.perceptionRadius;
 
@@ -265,30 +326,31 @@ export const align = (
     if (other.id !== boid.id) {
       const d = distanceSq(boid.position, other.position);
       if (d < perceptionRadiusSq) {
-        steering.x += other.velocity.x;
-        steering.y += other.velocity.y;
+        result.x += other.velocity.x;
+        result.y += other.velocity.y;
         total++;
       }
     }
   }
 
   if (total > 0) {
-    steering.x /= total;
-    steering.y /= total;
+    result.x /= total;
+    result.y /= total;
 
-    const steeringMag = magnitude(steering);
-    if (steeringMag > 0) {
-      const steeringNorm = { 
-        x: steering.x / steeringMag, 
-        y: steering.y / steeringMag 
-      };
-      const steeringScaled = multiply(steeringNorm, parameters.maxSpeed);
-      const steeringForce = subtract(steeringScaled, boid.velocity);
-      return limit(steeringForce, parameters.maxForce);
-    }
+    // Normalize to get direction
+    normalizeInPlace(result);
+    
+    // Scale to max speed
+    multiplyInPlace(result, parameters.maxSpeed);
+    
+    // Calculate steering force: desired - current
+    subtractInPlace(result, boid.velocity, result);
+    
+    // Limit the force
+    limitInPlace(result, parameters.maxForce);
   }
 
-  return steering;
+  return result;
 };
 
 /**
@@ -298,9 +360,13 @@ export const cohesion = (
   boid: Boid,
   boids: Boid[],
   nearbyIndices: number[],
-  parameters: BoidsParameters
+  parameters: BoidsParameters,
+  result: Vector2D
 ): Vector2D => {
-  const steering = { x: 0, y: 0 };
+  // Initialize result vector
+  result.x = 0;
+  result.y = 0;
+  
   let total = 0;
   const perceptionRadiusSq = parameters.perceptionRadius * parameters.perceptionRadius;
 
@@ -309,32 +375,36 @@ export const cohesion = (
     if (other.id !== boid.id) {
       const d = distanceSq(boid.position, other.position);
       if (d < perceptionRadiusSq) {
-        steering.x += other.position.x;
-        steering.y += other.position.y;
+        result.x += other.position.x;
+        result.y += other.position.y;
         total++;
       }
     }
   }
 
   if (total > 0) {
-    steering.x /= total;
-    steering.y /= total;
+    result.x /= total;
+    result.y /= total;
 
-    const desired = subtract(steering, boid.position);
-    const desiredMag = magnitude(desired);
+    // Get desired direction - difference between center and current position
+    subtractInPlace(result, boid.position, result);
     
-    if (desiredMag > 0) {
-      const desiredNorm = { 
-        x: desired.x / desiredMag, 
-        y: desired.y / desiredMag 
-      };
-      const desiredScaled = multiply(desiredNorm, parameters.maxSpeed);
-      const steeringForce = subtract(desiredScaled, boid.velocity);
-      return limit(steeringForce, parameters.maxForce);
+    // Normalize and scale
+    const mag = Math.sqrt(result.x * result.x + result.y * result.y);
+    if (mag > 0.0001) {
+      result.x = (result.x / mag) * parameters.maxSpeed;
+      result.y = (result.y / mag) * parameters.maxSpeed;
+      
+      // Subtract current velocity to get steering force
+      result.x -= boid.velocity.x;
+      result.y -= boid.velocity.y;
+      
+      // Limit force
+      limitInPlace(result, parameters.maxForce);
     }
   }
 
-  return steering;
+  return result;
 };
 
 /**
@@ -344,9 +414,13 @@ export const separation = (
   boid: Boid,
   boids: Boid[],
   nearbyIndices: number[],
-  parameters: BoidsParameters
+  parameters: BoidsParameters,
+  result: Vector2D
 ): Vector2D => {
-  const steering = { x: 0, y: 0 };
+  // Initialize result vector
+  result.x = 0;
+  result.y = 0;
+  
   let total = 0;
   const perceptionRadiusSq = parameters.perceptionRadius * parameters.perceptionRadius;
 
@@ -355,34 +429,41 @@ export const separation = (
     if (other.id !== boid.id) {
       const d = distanceSq(boid.position, other.position);
       if (d < perceptionRadiusSq && d > 0) {
-        const diff = subtract(boid.position, other.position);
+        // Calculate difference vector
+        tmpVec1.x = boid.position.x - other.position.x;
+        tmpVec1.y = boid.position.y - other.position.y;
+        
+        // Weight by distance (closer boids are more important)
         const dist = Math.sqrt(d);
-        diff.x /= dist;
-        diff.y /= dist;
-        steering.x += diff.x;
-        steering.y += diff.y;
+        tmpVec1.x /= dist;
+        tmpVec1.y /= dist;
+        
+        result.x += tmpVec1.x;
+        result.y += tmpVec1.y;
         total++;
       }
     }
   }
 
   if (total > 0) {
-    steering.x /= total;
-    steering.y /= total;
-
-    const steeringMag = magnitude(steering);
-    if (steeringMag > 0) {
-      const steeringNorm = { 
-        x: steering.x / steeringMag, 
-        y: steering.y / steeringMag 
-      };
-      const steeringScaled = multiply(steeringNorm, parameters.maxSpeed);
-      const steeringForce = subtract(steeringScaled, boid.velocity);
-      return limit(steeringForce, parameters.maxForce);
-    }
+    result.x /= total;
+    result.y /= total;
+    
+    // Normalize to get direction
+    normalizeInPlace(result);
+    
+    // Scale to max speed
+    multiplyInPlace(result, parameters.maxSpeed);
+    
+    // Calculate steering force
+    result.x -= boid.velocity.x;
+    result.y -= boid.velocity.y;
+    
+    // Limit force
+    limitInPlace(result, parameters.maxForce);
   }
 
-  return steering;
+  return result;
 };
 
 /**
@@ -391,50 +472,41 @@ export const separation = (
 export const attraction = (
   boid: Boid,
   targetPosition: Vector2D,
-  parameters: BoidsParameters
+  parameters: BoidsParameters,
+  result: Vector2D
 ): Vector2D => {
-  // Debug
-  if (boid.id === 0) {
-    console.log("Attraction force calculation for boid 0:", { 
-      targetPosition, 
-      boidPosition: boid.position,
-      attractionForce: parameters.attractionForce 
-    });
-  }
-
-  // Calculate desired velocity (towards target)
-  const desired = subtract(targetPosition, boid.position);
-  const desiredMag = magnitude(desired);
+  // Calculate direction towards target
+  subtractInPlace(targetPosition, boid.position, result);
   
-  if (desiredMag > 0) {
-    // Scale desired velocity by maximum speed
-    const desiredNorm = { 
-      x: desired.x / desiredMag, 
-      y: desired.y / desiredMag 
-    };
+  const distanceSq = result.x * result.x + result.y * result.y;
+  
+  if (distanceSq > 0) {
+    const distance = Math.sqrt(distanceSq);
     
-    // Attraction force is stronger and has longer range
-    const strength = Math.min(3.0, 1000 / (desiredMag + 1));
-    const desiredScaled = multiply(desiredNorm, parameters.maxSpeed * strength);
+    // Normalize direction
+    result.x /= distance;
+    result.y /= distance;
+    
+    // Stronger attraction for distant boids
+    const strength = Math.min(3.0, 1000 / (distance + 1));
+    
+    // Scale by max speed and strength
+    result.x *= parameters.maxSpeed * strength;
+    result.y *= parameters.maxSpeed * strength;
     
     // Calculate steering force
-    const steeringForce = subtract(desiredScaled, boid.velocity);
+    result.x -= boid.velocity.x;
+    result.y -= boid.velocity.y;
     
-    // Return limited force scaled by attraction force parameter
-    const result = multiply(
-      limit(steeringForce, parameters.maxForce * 2),  // Allow stronger forces for attraction
-      parameters.attractionForce * 3  // Amplify the attraction force
-    );
-
-    // Debug
-    if (boid.id === 0) {
-      console.log("Resulting attraction force:", result);
-    }
-    
-    return result;
+    // Limit force and apply attraction multiplier
+    limitInPlace(result, parameters.maxForce * 2);
+    multiplyInPlace(result, parameters.attractionForce * 2);
+  } else {
+    result.x = 0;
+    result.y = 0;
   }
   
-  return { x: 0, y: 0 };
+  return result;
 };
 
 /**
@@ -447,12 +519,8 @@ export const handleEdges = (
   canvasHeight: number,
   parameters: BoidsParameters
 ): void => {
-  const { position, velocity, history } = boid;
+  const { position, velocity } = boid;
   const { edgeBehavior, edgeMargin, maxSpeed } = parameters;
-
-  // Save the previous position for fixing trail wrapping
-  const prevX = position.x;
-  const prevY = position.y;
   
   // Flag to detect if wrapping occurred
   let didWrap = false;
@@ -478,7 +546,7 @@ export const handleEdges = (
     
     // Clear history on wrap to prevent trails spanning across the screen
     if (didWrap) {
-      boid.history = [];
+      boid.history.length = 0;
     }
   } else if (edgeBehavior === 'bounce') {
     // Bounce off the edges
@@ -499,31 +567,30 @@ export const handleEdges = (
     
     // Clear history on bounce for smoother visual
     if (bounced) {
-      boid.history = [];
+      boid.history.length = 0;
     }
   } else if (edgeBehavior === 'avoid') {
     // Steer away from edges
-    const steer = { x: 0, y: 0 };
-    
     if (position.x < edgeMargin) {
-      steer.x = maxSpeed;
+      boid.acceleration.x += maxSpeed * (1 - position.x / edgeMargin);
     } else if (position.x > canvasWidth - edgeMargin) {
-      steer.x = -maxSpeed;
+      boid.acceleration.x -= maxSpeed * (1 - (canvasWidth - position.x) / edgeMargin);
     }
     
     if (position.y < edgeMargin) {
-      steer.y = maxSpeed;
+      boid.acceleration.y += maxSpeed * (1 - position.y / edgeMargin);
     } else if (position.y > canvasHeight - edgeMargin) {
-      steer.y = -maxSpeed;
-    }
-    
-    if (steer.x !== 0 || steer.y !== 0) {
-      const steerNorm = normalize(steer);
-      const steerForce = multiply(steerNorm, parameters.maxForce * 2);
-      boid.acceleration = add(boid.acceleration, steerForce);
+      boid.acceleration.y -= maxSpeed * (1 - (canvasHeight - position.y) / edgeMargin);
     }
   }
 };
+
+// Reusable vectors for force calculations
+const alignForceVec = { x: 0, y: 0 };
+const cohesionForceVec = { x: 0, y: 0 };
+const separationForceVec = { x: 0, y: 0 };
+const attractionForceVec = { x: 0, y: 0 };
+const directionVec = { x: 0, y: 0 };
 
 /**
  * Update a single boid's position based on the flocking algorithm
@@ -539,78 +606,81 @@ export const updateBoid = (
   cursorPosition: Vector2D | null,
   isAttracting: boolean
 ): void => {
-  // DIRECT FIX FOR ATTRACTION: If attracting, move directly toward cursor
+  // Reset acceleration
+  boid.acceleration.x = 0;
+  boid.acceleration.y = 0;
+  
+  // Direct attraction to cursor if enabled
   if (isAttracting && cursorPosition) {
     // Calculate direction to cursor
-    const directionToCursor = subtract(cursorPosition, boid.position);
-    const distanceToCursor = magnitude(directionToCursor);
+    subtractInPlace(cursorPosition, boid.position, directionVec);
+    const distanceToCursor = Math.sqrt(directionVec.x * directionVec.x + directionVec.y * directionVec.y);
     
     if (distanceToCursor > 5) { // Only attract if not too close
-      // Normalize and scale by attraction force * max speed
-      const normalizedDirection = {
-        x: directionToCursor.x / distanceToCursor,
-        y: directionToCursor.y / distanceToCursor
-      };
+      // Normalize and apply attraction
+      directionVec.x /= distanceToCursor;
+      directionVec.y /= distanceToCursor;
       
-      // Strong direct attraction that overrides other behaviors
+      // Attraction factor decreases with distance
       const attractionStrength = Math.min(1.0, 100 / distanceToCursor) * parameters.attractionForce;
       
-      // Mix current velocity with attraction direction
-      boid.velocity = {
-        x: boid.velocity.x * 0.8 + normalizedDirection.x * parameters.maxSpeed * attractionStrength * 0.2,
-        y: boid.velocity.y * 0.8 + normalizedDirection.y * parameters.maxSpeed * attractionStrength * 0.2
-      };
-      
-      if (boid.id === 0) {
-        console.log("DIRECT ATTRACTION:", { 
-          attractionStrength, 
-          distanceToCursor,
-          velocity: { ...boid.velocity }
-        });
-      }
+      // Apply weighted attraction to velocity
+      boid.velocity.x = boid.velocity.x * 0.8 + directionVec.x * parameters.maxSpeed * attractionStrength * 0.2;
+      boid.velocity.y = boid.velocity.y * 0.8 + directionVec.y * parameters.maxSpeed * attractionStrength * 0.2;
     }
-  }
-
-  // Calculate flocking forces - normal behavior
-  const alignForce = multiply(
-    align(boid, boids, nearbyIndices, parameters),
-    parameters.alignmentForce
-  );
-  const cohesionForce = multiply(
-    cohesion(boid, boids, nearbyIndices, parameters),
-    parameters.cohesionForce
-  );
-  const separationForce = multiply(
-    separation(boid, boids, nearbyIndices, parameters),
-    parameters.separationForce
-  );
-
-  // Apply flocking forces
-  boid.acceleration = add(boid.acceleration, alignForce);
-  boid.acceleration = add(boid.acceleration, cohesionForce);
-  boid.acceleration = add(boid.acceleration, separationForce);
-  
-  // Update velocity and position (only if we're not directly controlling velocity via attraction)
-  if (!(isAttracting && cursorPosition)) {
-    boid.velocity = add(boid.velocity, boid.acceleration);
+  } else {
+    // Normal flocking behavior
+    
+    // Calculate alignment force
+    align(boid, boids, nearbyIndices, parameters, alignForceVec);
+    multiplyInPlace(alignForceVec, parameters.alignmentForce);
+    
+    // Calculate cohesion force
+    cohesion(boid, boids, nearbyIndices, parameters, cohesionForceVec);
+    multiplyInPlace(cohesionForceVec, parameters.cohesionForce);
+    
+    // Calculate separation force
+    separation(boid, boids, nearbyIndices, parameters, separationForceVec);
+    multiplyInPlace(separationForceVec, parameters.separationForce);
+    
+    // Add all forces to acceleration
+    boid.acceleration.x += alignForceVec.x + cohesionForceVec.x + separationForceVec.x;
+    boid.acceleration.y += alignForceVec.y + cohesionForceVec.y + separationForceVec.y;
+    
+    // Apply cursor attraction as a separate force if active
+    if (isAttracting && cursorPosition) {
+      attraction(boid, cursorPosition, parameters, attractionForceVec);
+      boid.acceleration.x += attractionForceVec.x;
+      boid.acceleration.y += attractionForceVec.y;
+    }
+    
+    // Update velocity with acceleration
+    boid.velocity.x += boid.acceleration.x;
+    boid.velocity.y += boid.acceleration.y;
   }
   
   // Always limit velocity to max speed
-  boid.velocity = limit(boid.velocity, parameters.maxSpeed);
+  limitInPlace(boid.velocity, parameters.maxSpeed);
   
-  // Save position history for trails
+  // Save position history for trails (limit to parameter length)
   if (boid.history.length >= parameters.trailLength) {
-    boid.history.shift();
+    if (boid.history.length > 0) {
+      // Reuse first history point instead of shifting
+      const firstPoint = boid.history.shift()!;
+      firstPoint.x = boid.position.x;
+      firstPoint.y = boid.position.y;
+      boid.history.push(firstPoint);
+    }
+  } else {
+    boid.history.push({ x: boid.position.x, y: boid.position.y });
   }
-  boid.history.push({ ...boid.position });
   
-  boid.position = add(boid.position, boid.velocity);
+  // Update position
+  boid.position.x += boid.velocity.x;
+  boid.position.y += boid.velocity.y;
   
   // Handle edges
   handleEdges(boid, canvasWidth, canvasHeight, parameters);
-  
-  // Reset acceleration
-  boid.acceleration = { x: 0, y: 0 };
 };
 
 /**
@@ -622,22 +692,20 @@ export const updateBoids = (state: BoidsState): BoidsState => {
   
   const { boids, canvasWidth, canvasHeight, parameters, gridCellSize, cursorPosition, isAttracting } = state;
   
-  // Debug attraction state
-  if (isAttracting && cursorPosition) {
-    console.log("Attraction active:", { isAttracting, cursorPosition });
-  }
-  
-  // Update spatial grid for this frame
-  const spatialGrid = updateSpatialGrid(boids, gridCellSize);
+  // Update spatial grid for this frame - reuse existing grid
+  const spatialGrid = updateSpatialGrid(boids, gridCellSize, state.spatialGrid);
   
   // Update each boid using spatial optimization
   for (let i = 0; i < boids.length; i++) {
     const boid = boids[i];
+    
+    // Get nearby boids using cached array
     const nearbyIndices = getNearbyBoidIndices(
       boid,
       spatialGrid,
       gridCellSize,
-      parameters.perceptionRadius
+      parameters.perceptionRadius,
+      nearbyIndicesCache
     );
     
     updateBoid(
@@ -652,9 +720,9 @@ export const updateBoids = (state: BoidsState): BoidsState => {
     );
   }
   
+  // Return updated state with minimal cloning
   return {
     ...state,
-    boids: [...boids], // Create new array reference to ensure proper updates
     spatialGrid,
   };
 }; 

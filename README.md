@@ -2,8 +2,6 @@
 
 An interactive implementation of Craig Reynolds' Boids flocking algorithm with WebGL rendering and real-time controls.
 
-![Boids Simulation](https://github.com/yourusername/boids/raw/main/screenshots/boids-screenshot.png)
-
 ## Overview
 
 This project simulates the emergent flocking behavior of birds (boids) using simple rules:

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
-import { Boid, BoidsState } from '../../utils/boids';
+import { BoidsState } from '../../utils/boids';
 
 interface BoidsCanvasProps {
   state: BoidsState;
@@ -8,92 +8,111 @@ interface BoidsCanvasProps {
   onAttractionStateChange?: (isAttracting: boolean) => void;
 }
 
-// WebGL shader sources
+// Simple WebGL shaders for robust point rendering
 const vertexShaderSource = `
   attribute vec2 aPosition;
   attribute vec2 aVelocity;
-  attribute float aAlpha;
+  attribute vec4 aColor;
   
   uniform mat4 uProjectionMatrix;
-  uniform float uSize;
+  uniform float uPointSize;
   
   varying vec2 vVelocity;
-  varying float vAlpha;
+  varying vec4 vColor;
   
   void main() {
     gl_Position = uProjectionMatrix * vec4(aPosition, 0.0, 1.0);
-    gl_PointSize = uSize;
+    gl_PointSize = uPointSize;
     vVelocity = aVelocity;
-    vAlpha = aAlpha;
+    vColor = aColor;
   }
 `;
 
 const fragmentShaderSource = `
-  precision mediump float;
+  precision highp float;
   
   varying vec2 vVelocity;
-  varying float vAlpha;
-  
-  uniform vec4 uColor;
-  uniform int uParticleType;
+  varying vec4 vColor;
   
   void main() {
     vec2 coord = gl_PointCoord - vec2(0.5);
     float dist = length(coord);
     
-    // Disk shape
-    if (uParticleType == 0) {
-      if (dist > 0.5) discard;
-      gl_FragColor = vec4(uColor.rgb, uColor.a * vAlpha);
-    } 
-    // Dot shape
-    else if (uParticleType == 1) {
-      if (dist > 0.3) discard;
-      gl_FragColor = vec4(uColor.rgb, uColor.a * vAlpha);
-    }
-    // Arrow shape (simulated)
-    else if (uParticleType == 2) {
-      float angle = atan(vVelocity.y, vVelocity.x);
-      float direction = atan(coord.y, coord.x);
-      float relativeDiff = mod(direction - angle + 3.14159, 6.28318) - 3.14159;
-      
-      if (dist > 0.5 || abs(relativeDiff) > 0.8 && dist > 0.2) discard;
-      gl_FragColor = vec4(uColor.rgb, uColor.a * vAlpha);
-    }
-    // Default (fallback)
-    else {
-      if (dist > 0.5) discard;
-      gl_FragColor = vec4(uColor.rgb, uColor.a * vAlpha);
-    }
+    if (dist > 0.5) discard;
+    gl_FragColor = vColor;
   }
 `;
 
 // Trail renderer shader sources
 const trailVertexShaderSource = `
   attribute vec2 aPosition;
-  attribute float aAge;
+  attribute vec4 aColor;
   
   uniform mat4 uProjectionMatrix;
   
-  varying float vAge;
+  varying vec4 vColor;
   
   void main() {
     gl_Position = uProjectionMatrix * vec4(aPosition, 0.0, 1.0);
-    vAge = aAge;
+    vColor = aColor;
   }
 `;
 
 const trailFragmentShaderSource = `
-  precision mediump float;
+  precision highp float;
   
-  varying float vAge;
-  
-  uniform vec4 uColor;
+  varying vec4 vColor;
   
   void main() {
-    gl_FragColor = vec4(uColor.rgb, uColor.a * (1.0 - vAge));
+    gl_FragColor = vColor;
   }
 `;
+
+// Cached projection matrix
+const createProjectionMatrix = (width: number, height: number): Float32Array => {
+  // Ensure positive dimensions to avoid division by zero
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+
+  // Create an identity matrix first
+  const matrix = new Float32Array(16);
+  matrix.fill(0);
+  
+  // Set the identity components
+  matrix[0] = 1;
+  matrix[5] = 1;
+  matrix[10] = 1;
+  matrix[15] = 1;
+  
+  // Set orthographic projection values (for 2D rendering)
+  matrix[0] = 2 / safeWidth;
+  matrix[5] = -2 / safeHeight;
+  matrix[12] = -1;
+  matrix[13] = 1;
+  
+  // Validate the matrix
+  if (!isValidMatrix(matrix)) {
+    console.error("Failed to create valid projection matrix, using identity matrix instead");
+    const identity = new Float32Array(16);
+    identity.fill(0);
+    identity[0] = identity[5] = identity[10] = identity[15] = 1;
+    return identity;
+  }
+  
+  return matrix;
+};
+
+// Helper to validate a matrix
+const isValidMatrix = (matrix: any): boolean => {
+  return matrix && 
+         matrix instanceof Float32Array && 
+         matrix.length === 16 && 
+         !matrix.some(val => isNaN(val) || !isFinite(val));
+};
+
+// Geometry for different particle types
+
+// Indices for quad/disk geometry
 
 export const BoidsCanvas = ({ 
   state, 
@@ -105,6 +124,36 @@ export const BoidsCanvas = ({
   const glRef = useRef<WebGLRenderingContext | null>(null);
   const programRef = useRef<WebGLProgram | null>(null);
   const trailProgramRef = useRef<WebGLProgram | null>(null);
+  
+  // WebGL buffer references to avoid recreation
+  const positionBufferRef = useRef<WebGLBuffer | null>(null);
+  const velocityBufferRef = useRef<WebGLBuffer | null>(null);
+  const colorBufferRef = useRef<WebGLBuffer | null>(null);
+  const projectionMatrixRef = useRef<Float32Array | null>(null);
+  
+  // Performance optimization - typed arrays for GPU data
+  const positionsArrayRef = useRef<Float32Array | null>(null);
+  const velocitiesArrayRef = useRef<Float32Array | null>(null);
+  const colorsArrayRef = useRef<Float32Array | null>(null);
+  
+  // Set initial projection matrix with default dimensions
+  useEffect(() => {
+    if (!projectionMatrixRef.current) {
+      // Create an initial projection matrix with safe values
+      const validWidth = state.canvasWidth > 0 ? state.canvasWidth : 100;
+      const validHeight = state.canvasHeight > 0 ? state.canvasHeight : 100;
+      projectionMatrixRef.current = createProjectionMatrix(validWidth, validHeight);
+    }
+    
+    // Initialize typed arrays for boids data if not already
+    if (!positionsArrayRef.current) {
+      const boidCount = Math.max(1000, state.boids.length); // Preallocate for efficiency
+      positionsArrayRef.current = new Float32Array(boidCount * 2);
+      velocitiesArrayRef.current = new Float32Array(boidCount * 2);
+      colorsArrayRef.current = new Float32Array(boidCount * 4);
+    }
+  }, [state.canvasWidth, state.canvasHeight, state.boids.length]);
+  
   const [useWebGL, setUseWebGL] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
@@ -135,89 +184,34 @@ export const BoidsCanvas = ({
     const x = (clientX - rect.left) * (canvas.width / rect.width);
     const y = (clientY - rect.top) * (canvas.height / rect.height);
     
-    console.log('Canvas coordinates:', x, y, 'from client:', clientX, clientY);    
     return { x, y };
   }, []);
   
   // Handle mouse/touch start (down)
   const handlePointerDown = useCallback((e: MouseEvent | TouchEvent) => {
-    console.log('PointerDown event triggered');
     const position = getCanvasCoordinates(e);
     if (position) {
-      console.log('Valid position on pointer down:', position);
       setIsDragging(true);
       setMousePos(position);
       onCursorPositionChange?.(position);
       onAttractionStateChange?.(true);
-      
-      // Apply attraction to ALL boids (not just 20)
-      if (state?.boids) {
-        // Scale attraction force based on the parameter value
-        const attractionScale = state.parameters.attractionForce * 0.1;
-        
-        for (let i = 0; i < state.boids.length; i++) {
-          const boid = state.boids[i];
-          const direction = {
-            x: position.x - boid.position.x,
-            y: position.y - boid.position.y
-          };
-          const distance = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
-          if (distance > 0) {
-            // Apply instant position change - more subtle than before
-            boid.position.x += direction.x * 0.1 * attractionScale;
-            boid.position.y += direction.y * 0.1 * attractionScale;
-            
-            // Set velocity toward cursor - scaled by attraction force
-            boid.velocity.x = (direction.x / distance * 3) * attractionScale;
-            boid.velocity.y = (direction.y / distance * 3) * attractionScale;
-          }
-        }
-      }
     }
-  }, [getCanvasCoordinates, onCursorPositionChange, onAttractionStateChange, state]);
+  }, [getCanvasCoordinates, onCursorPositionChange, onAttractionStateChange]);
   
   // Handle mouse/touch move
   const handlePointerMove = useCallback((e: MouseEvent | TouchEvent) => {
     // Only update position if currently attracting (button/touch is down)
     if (state.isAttracting || isDragging) {
-      console.log('PointerMove event while attracting');
       const position = getCanvasCoordinates(e);
       if (position) {
         setMousePos(position);
         onCursorPositionChange?.(position);
-        
-        // Apply attraction to ALL boids during drag
-        if (state?.boids) {
-          // Scale attraction force based on the parameter value
-          const attractionScale = state.parameters.attractionForce * 0.1; 
-          
-          for (let i = 0; i < state.boids.length; i++) {
-            const boid = state.boids[i];
-            const direction = {
-              x: position.x - boid.position.x,
-              y: position.y - boid.position.y
-            };
-            const distance = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
-            if (distance > 0) {
-              // Apply position change - smoother during drag
-              boid.position.x += direction.x * 0.05 * attractionScale;
-              boid.position.y += direction.y * 0.05 * attractionScale;
-              
-              // Adjust velocity toward cursor - scaled by attraction force and distance
-              // The further away, the stronger the attraction
-              const distanceScale = Math.min(1.0, 100 / distance);
-              boid.velocity.x = (direction.x / distance * 2 * distanceScale) * attractionScale;
-              boid.velocity.y = (direction.y / distance * 2 * distanceScale) * attractionScale;
-            }
-          }
-        }
       }
     }
-  }, [getCanvasCoordinates, onCursorPositionChange, state, isDragging]);
+  }, [getCanvasCoordinates, onCursorPositionChange, state.isAttracting, isDragging]);
   
   // Handle mouse/touch end (up)
   const handlePointerUp = useCallback(() => {
-    console.log('PointerUp event triggered');
     setIsDragging(false);
     onAttractionStateChange?.(false);
   }, [onAttractionStateChange]);
@@ -226,8 +220,6 @@ export const BoidsCanvas = ({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
-    console.log('Setting up event listeners on canvas');
     
     // Always prevent default for touch events to avoid scrolling
     const preventDefaultTouchstart = (e: TouchEvent) => {
@@ -257,22 +249,24 @@ export const BoidsCanvas = ({
     };
   }, [handlePointerDown, handlePointerMove, handlePointerUp]);
   
-  // Initialize WebGL
+  // Initialize WebGL - only once
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
     try {
+      // Get WebGL context with optimized parameters
       const gl = canvas.getContext('webgl', { 
-        antialias: true,
+        antialias: false, // Disable antialiasing for performance
         alpha: false,
         depth: false,
         stencil: false,
         premultipliedAlpha: false,
+        preserveDrawingBuffer: false,
+        powerPreference: 'high-performance'
       });
       
       if (!gl) {
-        console.warn('WebGL not supported, falling back to Canvas2D');
         setUseWebGL(false);
         return;
       }
@@ -295,10 +289,19 @@ export const BoidsCanvas = ({
       }
       trailProgramRef.current = trailProgram;
       
+      // Create buffers once
+      positionBufferRef.current = gl.createBuffer();
+      velocityBufferRef.current = gl.createBuffer();
+      colorBufferRef.current = gl.createBuffer();
+      
       // Set clear color
       gl.clearColor(0.06, 0.07, 0.08, 1.0);
+      
+      // Set blending for alpha transparency
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     } catch (e) {
-      console.error('WebGL initialization failed:', e);
+      console.error("WebGL initialization error:", e);
       setUseWebGL(false);
     }
     
@@ -306,20 +309,19 @@ export const BoidsCanvas = ({
       try {
         const gl = glRef.current;
         if (gl) {
-          if (programRef.current) {
-            gl.deleteProgram(programRef.current);
-          }
-          if (trailProgramRef.current) {
-            gl.deleteProgram(trailProgramRef.current);
-          }
+          if (positionBufferRef.current) gl.deleteBuffer(positionBufferRef.current);
+          if (velocityBufferRef.current) gl.deleteBuffer(velocityBufferRef.current);
+          if (colorBufferRef.current) gl.deleteBuffer(colorBufferRef.current);
+          if (programRef.current) gl.deleteProgram(programRef.current);
+          if (trailProgramRef.current) gl.deleteProgram(trailProgramRef.current);
         }
       } catch (e) {
-        console.error('WebGL cleanup failed:', e);
+        // Ignore cleanup errors
       }
     };
   }, []);
   
-  // Make sure canvas dimensions match state
+  // Make sure canvas dimensions match state and prepare projection matrix
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -328,66 +330,87 @@ export const BoidsCanvas = ({
     if (canvas.width !== state.canvasWidth || canvas.height !== state.canvasHeight) {
       canvas.width = state.canvasWidth;
       canvas.height = state.canvasHeight;
-      console.log(`Canvas dimensions set to ${canvas.width}x${canvas.height}`);
+      
+      // Update projection matrix with validation
+      const validWidth = state.canvasWidth > 0 ? state.canvasWidth : 1;
+      const validHeight = state.canvasHeight > 0 ? state.canvasHeight : 1;
+      projectionMatrixRef.current = createProjectionMatrix(validWidth, validHeight);
     }
   }, [state.canvasWidth, state.canvasHeight]);
+  
+  // Prepare typed arrays for boids data when count changes
+  useEffect(() => {
+    const boidCount = state.boids.length;
+    
+    // Initialize or resize typed arrays if needed
+    if (!positionsArrayRef.current || positionsArrayRef.current.length < boidCount * 2) {
+      positionsArrayRef.current = new Float32Array(boidCount * 2);
+      velocitiesArrayRef.current = new Float32Array(boidCount * 2);
+      colorsArrayRef.current = new Float32Array(boidCount * 4);
+    }
+  }, [state.boids.length]);
   
   // Render the boids using either WebGL or Canvas2D
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    if (useWebGL && glRef.current) {
-      renderBoidsWebGL(
-        glRef.current, 
-        programRef.current!, 
-        trailProgramRef.current!,
-        state, 
-        colorPalette
-      );
+    // Make sure projection matrix is initialized
+    if (!projectionMatrixRef.current) {
+      const validWidth = state.canvasWidth > 0 ? state.canvasWidth : 100;
+      const validHeight = state.canvasHeight > 0 ? state.canvasHeight : 100;
+      projectionMatrixRef.current = createProjectionMatrix(validWidth, validHeight);
+    }
+    
+    if (useWebGL && glRef.current && programRef.current && trailProgramRef.current && 
+        positionBufferRef.current && velocityBufferRef.current && colorBufferRef.current && 
+        positionsArrayRef.current && velocitiesArrayRef.current && colorsArrayRef.current && 
+        projectionMatrixRef.current) {
+      try {
+        renderBoidsInstanced(
+          glRef.current,
+          programRef.current,
+          trailProgramRef.current,
+          state,
+          colorPalette,
+          {
+            positionBuffer: positionBufferRef.current,
+            velocityBuffer: velocityBufferRef.current,
+            colorBuffer: colorBufferRef.current,
+            positions: positionsArrayRef.current,
+            velocities: velocitiesArrayRef.current,
+            colors: colorsArrayRef.current,
+            projectionMatrix: projectionMatrixRef.current
+          }
+        );
+      } catch (e) {
+        console.error("WebGL rendering error:", e);
+        setUseWebGL(false); // Switch to Canvas2D renderer
+        renderBoidsCanvas2D(canvas, state, colorPalette);
+      }
     } else {
       renderBoidsCanvas2D(canvas, state, colorPalette);
     }
     
-    // Always draw debugging elements with Canvas2D
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      // Draw debug info
-      ctx.save();
-      
-      // Draw attraction state indicator
-      ctx.font = '14px Arial';
-      ctx.fillStyle = state.isAttracting ? 'lime' : 'red';
-      ctx.fillText(`Attraction: ${state.isAttracting ? 'ON' : 'OFF'} Drag: ${isDragging ? 'ON' : 'OFF'}`, 10, 20);
-      
-      // Draw cursor position if available
-      if (mousePos) {
-        ctx.fillStyle = 'yellow';
-        ctx.fillText(`Mouse: ${Math.round(mousePos.x)},${Math.round(mousePos.y)}`, 10, 40);
+    // Show minimal debug info
+    if (state.showPerceptionRadius) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.save();
         
-        // Draw a large target at cursor position
-        ctx.beginPath();
-        ctx.arc(mousePos.x, mousePos.y, 20, 0, Math.PI * 2);
-        ctx.strokeStyle = 'yellow';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        // Draw attraction target if needed
+        if (mousePos && state.isAttracting) {
+          ctx.beginPath();
+          ctx.arc(mousePos.x, mousePos.y, 8, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
         
-        // Draw cross
-        ctx.beginPath();
-        ctx.moveTo(mousePos.x - 20, mousePos.y);
-        ctx.lineTo(mousePos.x + 20, mousePos.y);
-        ctx.moveTo(mousePos.x, mousePos.y - 20);
-        ctx.lineTo(mousePos.x, mousePos.y + 20);
-        ctx.stroke();
+        ctx.restore();
       }
-      
-      // Add attraction force indicator
-      ctx.fillStyle = 'white';
-      ctx.fillText(`Attraction Force: ${state.parameters.attractionForce.toFixed(1)}`, 10, 60);
-      
-      ctx.restore();
     }
-  }, [state, colorPalette, useWebGL, mousePos, isDragging]);
+  }, [state, colorPalette, useWebGL, mousePos]);
   
   return (
     <canvas
@@ -395,7 +418,15 @@ export const BoidsCanvas = ({
       width={state.canvasWidth}
       height={state.canvasHeight}
       className={className}
-      style={{ cursor: 'pointer', touchAction: 'none' }} // Disable browser touch actions
+      style={{ 
+        margin: 0, 
+        padding: 0, 
+        display: 'block',
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#0f1215',
+        touchAction: 'none'
+      }}
     />
   );
 };
@@ -414,7 +445,6 @@ const createShaderProgram = (
   gl.compileShader(vertexShader);
   
   if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-    console.error('Vertex shader compilation failed:', gl.getShaderInfoLog(vertexShader));
     gl.deleteShader(vertexShader);
     return null;
   }
@@ -427,7 +457,6 @@ const createShaderProgram = (
   gl.compileShader(fragmentShader);
   
   if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-    console.error('Fragment shader compilation failed:', gl.getShaderInfoLog(fragmentShader));
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
     return null;
@@ -442,7 +471,6 @@ const createShaderProgram = (
   gl.linkProgram(program);
   
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error('Shader program linking failed:', gl.getProgramInfoLog(program));
     gl.deleteShader(vertexShader);
     gl.deleteShader(fragmentShader);
     gl.deleteProgram(program);
@@ -458,160 +486,175 @@ const createShaderProgram = (
   return program;
 };
 
-// Render boids using WebGL
-const renderBoidsWebGL = (
+// WebGL buffer pointers
+interface WebGLBuffers {
+  positionBuffer: WebGLBuffer;
+  velocityBuffer: WebGLBuffer;
+  colorBuffer: WebGLBuffer;
+  positions: Float32Array;
+  velocities: Float32Array;
+  colors: Float32Array;
+  projectionMatrix: Float32Array;
+}
+
+// Simple, reliable WebGL rendering
+const renderBoidsInstanced = (
   gl: WebGLRenderingContext,
   program: WebGLProgram,
   trailProgram: WebGLProgram,
   state: BoidsState,
-  colorPalette: string[]
+  colorPalette: string[],
+  buffers: WebGLBuffers
 ) => {
-  const { boids, canvasWidth, canvasHeight, particleType, showPerceptionRadius } = state;
+  const { boids, canvasWidth, canvasHeight, particleType } = state;
   
+  // Early return if there are no boids or the projection matrix is invalid
   if (boids.length === 0) return;
   
-  // Create projection matrix (converts to clip space)
-  const projectionMatrix = [
-    2 / canvasWidth, 0, 0, 0,
-    0, -2 / canvasHeight, 0, 0,
-    0, 0, 1, 0,
-    -1, 1, 0, 1
-  ];
+  // Validate and fix projection matrix if necessary
+  if (!isValidMatrix(buffers.projectionMatrix)) {
+    console.error('Invalid projection matrix, recreating');
+    buffers.projectionMatrix = createProjectionMatrix(canvasWidth, canvasHeight);
+    
+    // If still invalid, use identity matrix as fallback
+    if (!isValidMatrix(buffers.projectionMatrix)) {
+      console.error('Failed to create valid projection matrix, using identity matrix');
+      const identity = new Float32Array(16);
+      identity.fill(0);
+      identity[0] = identity[5] = identity[10] = identity[15] = 1;
+      buffers.projectionMatrix = identity;
+    }
+  }
   
   // Clear the canvas
   gl.viewport(0, 0, canvasWidth, canvasHeight);
   gl.clear(gl.COLOR_BUFFER_BIT);
   
+  // Prepare data for all boids
+  const positions = buffers.positions;
+  const velocities = buffers.velocities;
+  const colors = buffers.colors;
+  
+  // Fill arrays with boid data
+  for (let i = 0; i < boids.length; i++) {
+    const boid = boids[i];
+    const idx = i * 2;
+    const colorIdx = i * 4;
+    
+    // Position data
+    positions[idx] = boid.position.x;
+    positions[idx + 1] = boid.position.y;
+    
+    // Velocity data
+    velocities[idx] = boid.velocity.x;
+    velocities[idx + 1] = boid.velocity.y;
+    
+    // Color data
+    const colorValues = parseColor(colorPalette[boid.id % colorPalette.length]);
+    colors[colorIdx] = colorValues[0] / 255;
+    colors[colorIdx + 1] = colorValues[1] / 255;
+    colors[colorIdx + 2] = colorValues[2] / 255;
+    colors[colorIdx + 3] = 0.9; // Alpha
+  }
+  
   // Draw trails if needed
   if (particleType === 'trail') {
     gl.useProgram(trailProgram);
     
-    // Set projection matrix uniform
     const projectionMatrixLocation = gl.getUniformLocation(trailProgram, 'uProjectionMatrix');
-    gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+    if (!projectionMatrixLocation) {
+      console.warn('Could not find trail projection matrix uniform location');
+    } else {
+      try {
+        gl.uniformMatrix4fv(projectionMatrixLocation, false, buffers.projectionMatrix);
+      } catch (e) {
+        console.error('Error setting trail projection matrix:', e);
+        return;
+      }
+    }
     
-    // Set color uniform
-    const colorLocation = gl.getUniformLocation(trailProgram, 'uColor');
-    
-    // For each boid, draw its trail
     for (let i = 0; i < boids.length; i++) {
       const boid = boids[i];
       const { history } = boid;
       
       if (history.length < 2) continue;
       
-      // Get a consistent color for this boid
-      const color = parseColor(colorPalette[boid.id % colorPalette.length]);
-      gl.uniform4f(colorLocation, color[0]/255, color[1]/255, color[2]/255, 0.6);
+      const colorValues = parseColor(colorPalette[boid.id % colorPalette.length]);
       
-      // Create trail vertices and ages
       const vertices = new Float32Array(history.length * 2);
-      const ages = new Float32Array(history.length);
+      const trailColors = new Float32Array(history.length * 4);
       
       for (let j = 0; j < history.length; j++) {
-        vertices[j * 2] = history[j].x;
-        vertices[j * 2 + 1] = history[j].y;
-        ages[j] = j / (history.length - 1); // 0 to 1
+        const idx = j * 2;
+        const colorIdx = j * 4;
+        
+        vertices[idx] = history[j].x;
+        vertices[idx + 1] = history[j].y;
+        
+        const alpha = j / history.length;
+        trailColors[colorIdx] = colorValues[0] / 255;
+        trailColors[colorIdx + 1] = colorValues[1] / 255;
+        trailColors[colorIdx + 2] = colorValues[2] / 255;
+        trailColors[colorIdx + 3] = 0.7 * (1 - alpha);
       }
       
-      // Create and bind vertex buffer
-      const vertexBuffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffers.positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STREAM_DRAW);
       
-      // Set position attribute
       const positionLocation = gl.getAttribLocation(trailProgram, 'aPosition');
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
       
-      // Create and bind age buffer
-      const ageBuffer = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, ageBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, ages, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffers.colorBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, trailColors, gl.STREAM_DRAW);
       
-      // Set age attribute
-      const ageLocation = gl.getAttribLocation(trailProgram, 'aAge');
-      gl.enableVertexAttribArray(ageLocation);
-      gl.vertexAttribPointer(ageLocation, 1, gl.FLOAT, false, 0, 0);
+      const colorLocation = gl.getAttribLocation(trailProgram, 'aColor');
+      gl.enableVertexAttribArray(colorLocation);
+      gl.vertexAttribPointer(colorLocation, 4, gl.FLOAT, false, 0, 0);
       
-      // Draw the trail as a line strip
       gl.drawArrays(gl.LINE_STRIP, 0, history.length);
-      
-      // Clean up
-      gl.disableVertexAttribArray(positionLocation);
-      gl.disableVertexAttribArray(ageLocation);
-      gl.deleteBuffer(vertexBuffer);
-      gl.deleteBuffer(ageBuffer);
     }
   }
-  
-  // Draw boids
+
+  // Draw boids as points
   gl.useProgram(program);
   
-  // Set uniforms
   const projectionMatrixLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
-  gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
-  
-  const colorLocation = gl.getUniformLocation(program, 'uColor');
-  const sizeLocation = gl.getUniformLocation(program, 'uSize');
-  const particleTypeLocation = gl.getUniformLocation(program, 'uParticleType');
-  
-  // Set particle type for the shader
-  let particleTypeValue = 0; // Default: disk
-  switch (particleType) {
-    case 'disk': particleTypeValue = 0; break;
-    case 'dot': particleTypeValue = 1; break;
-    case 'arrow': particleTypeValue = 2; break;
-    case 'trail': particleTypeValue = 1; break; // For trail, we draw dots for the head
-  }
-  gl.uniform1i(particleTypeLocation, particleTypeValue);
-  
-  // Create arrays for boid data
-  const positions = new Float32Array(boids.length * 2);
-  const velocities = new Float32Array(boids.length * 2);
-  const alphas = new Float32Array(boids.length);
-  
-  // Fill arrays with boid data
-  for (let i = 0; i < boids.length; i++) {
-    const boid = boids[i];
-    positions[i * 2] = boid.position.x;
-    positions[i * 2 + 1] = boid.position.y;
-    velocities[i * 2] = boid.velocity.x;
-    velocities[i * 2 + 1] = boid.velocity.y;
-    alphas[i] = 0.8;
+  if (!projectionMatrixLocation) {
+    console.warn('Could not find projection matrix uniform location');
+    return;
   }
   
-  // Create and bind position buffer
-  const positionBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+  try {
+    gl.uniformMatrix4fv(projectionMatrixLocation, false, buffers.projectionMatrix);
+  } catch (e) {
+    console.error('Error setting projection matrix:', e);
+    // Fall back to 2D canvas rendering as a last resort
+    renderBoidsCanvas2D(gl.canvas as HTMLCanvasElement, state, colorPalette);
+    return;
+  }
   
-  // Set position attribute
-  const positionLocation = gl.getAttribLocation(program, 'aPosition');
-  gl.enableVertexAttribArray(positionLocation);
-  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+  // Position attribute
+  const positionAttributeLocation = gl.getAttribLocation(program, 'aPosition');
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(positionAttributeLocation);
+  gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
   
-  // Create and bind velocity buffer
-  const velocityBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, velocityBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, velocities, gl.STATIC_DRAW);
+  // Velocity attribute
+  const velocityAttributeLocation = gl.getAttribLocation(program, 'aVelocity');
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.velocityBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, velocities, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(velocityAttributeLocation);
+  gl.vertexAttribPointer(velocityAttributeLocation, 2, gl.FLOAT, false, 0, 0);
   
-  // Set velocity attribute
-  const velocityLocation = gl.getAttribLocation(program, 'aVelocity');
-  gl.enableVertexAttribArray(velocityLocation);
-  gl.vertexAttribPointer(velocityLocation, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.colorBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STREAM_DRAW);
   
-  // Create and bind alpha buffer
-  const alphaBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, alphaBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, alphas, gl.STATIC_DRAW);
+  const colorLocation = gl.getAttribLocation(program, 'aColor');
+  gl.enableVertexAttribArray(colorLocation);
+  gl.vertexAttribPointer(colorLocation, 4, gl.FLOAT, false, 0, 0);
   
-  // Set alpha attribute
-  const alphaLocation = gl.getAttribLocation(program, 'aAlpha');
-  gl.enableVertexAttribArray(alphaLocation);
-  gl.vertexAttribPointer(alphaLocation, 1, gl.FLOAT, false, 0, 0);
-  
-  // Set point size based on particle type
   let pointSize = 10;
   switch (particleType) {
     case 'disk': pointSize = 10; break;
@@ -619,139 +662,81 @@ const renderBoidsWebGL = (
     case 'arrow': pointSize = 12; break;
     case 'trail': pointSize = 4; break;
   }
-  gl.uniform1f(sizeLocation, pointSize);
   
-  // For each distinct color, draw the corresponding boids
-  for (let colorIndex = 0; colorIndex < colorPalette.length; colorIndex++) {
-    const color = parseColor(colorPalette[colorIndex]);
-    gl.uniform4f(colorLocation, color[0]/255, color[1]/255, color[2]/255, 1.0);
-    
-    // Draw points for boids with the current color
-    const indices = [];
-    for (let i = 0; i < boids.length; i++) {
-      if (i % colorPalette.length === colorIndex) {
-        indices.push(i);
-      }
-    }
-    
-    if (indices.length === 0) continue;
-    
-    // Draw the boids
-    for (const index of indices) {
-      gl.drawArrays(gl.POINTS, index, 1);
-    }
+  const pointSizeLocation = gl.getUniformLocation(program, 'uPointSize');
+  if (pointSizeLocation) {
+    gl.uniform1f(pointSizeLocation, pointSize);
   }
   
-  // Clean up
-  gl.disableVertexAttribArray(positionLocation);
-  gl.disableVertexAttribArray(velocityLocation);
-  gl.disableVertexAttribArray(alphaLocation);
-  gl.deleteBuffer(positionBuffer);
-  gl.deleteBuffer(velocityBuffer);
-  gl.deleteBuffer(alphaBuffer);
+  gl.drawArrays(gl.POINTS, 0, boids.length);
   
-  // Draw perception radius if needed
-  if (showPerceptionRadius) {
-    drawPerceptionRadiusWebGL(
-      gl, 
-      state.boids,
-      state.parameters.perceptionRadius,
-      projectionMatrix
-    );
-  }
+  gl.disableVertexAttribArray(positionAttributeLocation);
+  gl.disableVertexAttribArray(velocityAttributeLocation);
+  gl.disableVertexAttribArray(colorLocation);
 };
 
-// Draw perception radius in WebGL
-const drawPerceptionRadiusWebGL = (
-  gl: WebGLRenderingContext,
-  boids: Boid[],
-  radius: number,
-  projectionMatrix: number[]
-) => {
-  // Create a simple shader program for the circles
-  const vertexShaderSource = `
-    attribute vec2 aPosition;
-    uniform mat4 uProjectionMatrix;
-    void main() {
-      gl_Position = uProjectionMatrix * vec4(aPosition, 0.0, 1.0);
-    }
-  `;
-  
-  const fragmentShaderSource = `
-    precision mediump float;
-    uniform vec4 uColor;
-    void main() {
-      gl_FragColor = uColor;
-    }
-  `;
-  
-  const program = createShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
-  if (!program) return;
-  
-  gl.useProgram(program);
-  
-  // Set uniforms
-  const projectionMatrixLocation = gl.getUniformLocation(program, 'uProjectionMatrix');
-  gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
-  
-  const colorLocation = gl.getUniformLocation(program, 'uColor');
-  gl.uniform4f(colorLocation, 0.8, 0.8, 0.9, 0.15);
-  
-  const positionLocation = gl.getAttribLocation(program, 'aPosition');
-  
-  // For each boid, draw its perception radius
-  for (const boid of boids) {
-    const { position } = boid;
-    
-    // Create circle vertices
-    const segments = 32;
-    const vertices = new Float32Array(segments * 2);
-    
-    for (let i = 0; i < segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      vertices[i * 2] = position.x + Math.cos(angle) * radius;
-      vertices[i * 2 + 1] = position.y + Math.sin(angle) * radius;
-    }
-    
-    const vertexBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-    
-    gl.enableVertexAttribArray(positionLocation);
-    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-    
-    gl.drawArrays(gl.LINE_LOOP, 0, segments);
-    gl.deleteBuffer(vertexBuffer);
-  }
-  
-  gl.disableVertexAttribArray(positionLocation);
-  gl.deleteProgram(program);
-};
-
-// Fallback method for rendering with Canvas2D
+// Fallback Canvas2D rendering when WebGL is not available
 const renderBoidsCanvas2D = (
   canvas: HTMLCanvasElement,
   state: BoidsState,
   colorPalette: string[]
 ) => {
-  const ctx = canvas.getContext('2d', { alpha: false });
+  const { boids, canvasWidth, canvasHeight, particleType } = state;
+  const ctx = canvas.getContext('2d');
+  
   if (!ctx) return;
   
-  const { boids, canvasWidth, canvasHeight, particleType, showPerceptionRadius, parameters } = state;
+  // Clear the canvas
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   
-  // Set better rendering quality
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  
-  // Clear the canvas with a dark background
-  ctx.fillStyle = '#0f1215';
-  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-  
-  // Render each boid
-  for (const boid of boids) {
-    // Get a consistent color for this boid based on its id
+  // Draw each boid
+  for (let i = 0; i < boids.length; i++) {
+    const boid = boids[i];
     const color = colorPalette[boid.id % colorPalette.length];
-    renderBoid(ctx, boid, particleType, parameters.perceptionRadius, showPerceptionRadius, color);
+    
+    ctx.save();
+    
+    // Draw trails if enabled
+    if (particleType === 'trail' && boid.history.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(boid.history[0].x, boid.history[0].y);
+      
+      for (let j = 1; j < boid.history.length; j++) {
+        ctx.lineTo(boid.history[j].x, boid.history[j].y);
+      }
+      
+      ctx.strokeStyle = color + '70'; // 70 is hex for ~44% opacity
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    
+    // Draw the boid
+    ctx.fillStyle = color;
+    
+    // Position at the boid's current position
+    ctx.translate(boid.position.x, boid.position.y);
+    
+    if (particleType === 'arrow') {
+      // Draw an arrow pointing in the direction of velocity
+      const angle = Math.atan2(boid.velocity.y, boid.velocity.x);
+      ctx.rotate(angle);
+      
+      const size = 8;
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size / 2, size / 2);
+      ctx.lineTo(-size / 2, -size / 2);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // Draw a circle for disk and dot types
+      const radius = particleType === 'dot' ? 2 : 5;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.restore();
   }
 };
 
@@ -837,142 +822,4 @@ const hslToRgb = (h: number, s: number, l: number): [number, number, number] => 
   }
   
   return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
-};
-
-// Helper function to render a single boid with enhanced visuals (Canvas2D fallback)
-const renderBoid = (
-  ctx: CanvasRenderingContext2D,
-  boid: Boid,
-  particleType: string,
-  perceptionRadius: number,
-  showPerceptionRadius: boolean,
-  color: string
-) => {
-  const { position, velocity, history } = boid;
-  
-  // Save the current context state
-  ctx.save();
-  
-  // Calculate velocity magnitude for scaling effects
-  const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-  
-  // Calculate direction angle for arrow style
-  const angle = Math.atan2(velocity.y, velocity.x);
-  
-  // Create a semi-transparent version of the color for effects
-  const colorAlpha = color.replace('rgb', 'rgba').replace(')', ', 0.8)');
-  const colorFaint = color.replace('rgb', 'rgba').replace(')', ', 0.4)');
-  
-  // Draw perception radius if enabled
-  if (showPerceptionRadius) {
-    ctx.beginPath();
-    ctx.arc(position.x, position.y, perceptionRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(200, 200, 230, 0.15)';
-    ctx.stroke();
-  }
-  
-  // Render based on particle type
-  switch (particleType) {
-    case 'disk':
-      // Draw a glowing disk
-      const glowRadius = 5 + speed * 0.5;
-      
-      // Outer glow
-      const gradient = ctx.createRadialGradient(
-        position.x, position.y, 0,
-        position.x, position.y, glowRadius * 2
-      );
-      gradient.addColorStop(0, colorAlpha);
-      gradient.addColorStop(0.5, colorFaint);
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      
-      ctx.beginPath();
-      ctx.arc(position.x, position.y, glowRadius * 2, 0, Math.PI * 2);
-      ctx.fillStyle = gradient;
-      ctx.fill();
-      
-      // Inner solid circle
-      ctx.beginPath();
-      ctx.arc(position.x, position.y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      break;
-      
-    case 'dot':
-      ctx.beginPath();
-      ctx.arc(position.x, position.y, 2, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      break;
-      
-    case 'arrow':
-      ctx.translate(position.x, position.y);
-      ctx.rotate(angle);
-      
-      // Draw arrow with size based on speed
-      const arrowSize = 4 + speed * 0.5;
-      
-      // Draw arrow
-      ctx.beginPath();
-      ctx.moveTo(arrowSize * 2, 0);
-      ctx.lineTo(-arrowSize, arrowSize);
-      ctx.lineTo(-arrowSize * 0.5, 0);
-      ctx.lineTo(-arrowSize, -arrowSize);
-      ctx.closePath();
-      
-      // Create gradient for arrow
-      const arrowGradient = ctx.createLinearGradient(-arrowSize, 0, arrowSize * 2, 0);
-      arrowGradient.addColorStop(0, colorFaint);
-      arrowGradient.addColorStop(1, color);
-      
-      ctx.fillStyle = arrowGradient;
-      ctx.fill();
-      
-      // Add an outline for better visibility
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-      break;
-      
-    case 'trail':
-      // Draw trail with fading effect
-      if (history.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(history[0].x, history[0].y);
-        
-        for (let i = 1; i < history.length; i++) {
-          ctx.lineTo(history[i].x, history[i].y);
-        }
-        
-        // Connect to current position
-        ctx.lineTo(position.x, position.y);
-        
-        // Create gradient along path
-        const pathLength = history.length;
-        const gradient = ctx.createLinearGradient(
-          history[0].x, history[0].y,
-          position.x, position.y
-        );
-        
-        gradient.addColorStop(0, 'rgba(30, 30, 50, 0)');
-        gradient.addColorStop(0.5, colorFaint);
-        gradient.addColorStop(1, color);
-        
-        ctx.strokeStyle = gradient;
-        ctx.lineWidth = 2;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.stroke();
-      }
-      
-      // Draw dot at current position
-      ctx.beginPath();
-      ctx.arc(position.x, position.y, 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'white';
-      ctx.fill();
-      break;
-  }
-  
-  // Restore the context state
-  ctx.restore();
 }; 
