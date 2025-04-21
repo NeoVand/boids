@@ -694,7 +694,7 @@ const renderBoidsInstanced = (
   switch (particleType) {
     case 'disk': pointSize = 10; break;
     case 'dot': pointSize = 4; break;
-    case 'trail': pointSize = 4; break;
+    case 'trail': pointSize = 6; break;
   }
   
   const pointSizeLocation = gl.getUniformLocation(program, 'uPointSize');
@@ -769,7 +769,7 @@ const renderBoidsCanvas2D = (
         // Parse the color (whether it's RGB or HSL) and convert to RGBA
         const rgbValues = parseColor(segmentColor);
         ctx.strokeStyle = `rgba(${rgbValues[0]}, ${rgbValues[1]}, ${rgbValues[2]}, ${progress * 0.8})`;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.5;
         ctx.stroke();
       }
     } else {
@@ -780,7 +780,8 @@ const renderBoidsCanvas2D = (
       ctx.translate(boid.position.x, boid.position.y);
       
       // Draw a circle for disk and dot types
-      const radius = particleType === 'dot' ? 2 : 5;
+      const radius = particleType === 'dot' ? 2 : 
+                    (particleType === 'trail' ? 3 : 5);
       ctx.beginPath();
       ctx.arc(0, 0, radius, 0, Math.PI * 2);
       ctx.fill();
