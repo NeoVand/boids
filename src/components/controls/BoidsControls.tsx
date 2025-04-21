@@ -264,7 +264,6 @@ export const BoidsControls = ({
                 >
                   <MenuItem value="wrap">Wrap</MenuItem>
                   <MenuItem value="bounce">Bounce</MenuItem>
-                  <MenuItem value="avoid">Avoid</MenuItem>
                 </Select>
               </FormControl>
             </Box>

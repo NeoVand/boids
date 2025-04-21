@@ -26,7 +26,7 @@ export interface BoidsParameters {
   perceptionRadius: number;
   maxSpeed: number;
   maxForce: number;
-  edgeBehavior: 'wrap' | 'bounce' | 'avoid';
+  edgeBehavior: 'wrap' | 'bounce';
   edgeMargin: number;
   trailLength: number;
   attractionForce: number;
@@ -522,7 +522,7 @@ export const handleEdges = (
   parameters: BoidsParameters
 ): void => {
   const { position, velocity } = boid;
-  const { edgeBehavior, edgeMargin, maxSpeed } = parameters;
+  const { edgeBehavior } = parameters;
   
   // Flag to detect if wrapping occurred
   let didWrap = false;
@@ -570,19 +570,6 @@ export const handleEdges = (
     // Clear history on bounce for smoother visual
     if (bounced) {
       boid.history.length = 0;
-    }
-  } else if (edgeBehavior === 'avoid') {
-    // Steer away from edges
-    if (position.x < edgeMargin) {
-      boid.acceleration.x += maxSpeed * (1 - position.x / edgeMargin);
-    } else if (position.x > canvasWidth - edgeMargin) {
-      boid.acceleration.x -= maxSpeed * (1 - (canvasWidth - position.x) / edgeMargin);
-    }
-    
-    if (position.y < edgeMargin) {
-      boid.acceleration.y += maxSpeed * (1 - position.y / edgeMargin);
-    } else if (position.y > canvasHeight - edgeMargin) {
-      boid.acceleration.y -= maxSpeed * (1 - (canvasHeight - position.y) / edgeMargin);
     }
   }
 };

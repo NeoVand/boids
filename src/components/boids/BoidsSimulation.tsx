@@ -11,7 +11,7 @@ export const BoidsSimulation = () => {
   // Use a single state object for both parameters and state
   const [state, setState] = useState<BoidsState>(() => {
     // Create initial state with more boids and optimized parameters
-    const initialState = createInitialState(500, canvasWidth, canvasHeight);
+    const initialState = createInitialState(2000, canvasWidth, canvasHeight);
     
     // Set optimized parameters for better performance
     initialState.parameters.attractionForce = 2.0;
@@ -19,7 +19,7 @@ export const BoidsSimulation = () => {
     initialState.parameters.perceptionRadius = 30; // Smaller perception radius for better performance
     initialState.parameters.separationForce = 1.5;
     initialState.gridCellSize = initialState.parameters.perceptionRadius;
-    initialState.particleType = 'disk'; // Start with simple disks for better performance
+    initialState.particleType = 'trail'; // Start with simple disks for better performance
     
     return initialState;
   });

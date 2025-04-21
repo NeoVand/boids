@@ -2,6 +2,13 @@
 
 An interactive implementation of Craig Reynolds' Boids flocking algorithm with WebGL rendering and real-time controls.
 
+## Live Demo
+
+Check out the live demo at [https://neovand.github.io/boids/](https://neovand.github.io/boids/)
+
+
+![Boids Simulation Screenshot](./screenshot.png)
+
 ## Overview
 
 This project simulates the emergent flocking behavior of birds (boids) using simple rules:
@@ -43,7 +50,7 @@ The simulation features spatial partitioning for performance optimization, allow
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/boids.git
+git clone https://github.com/neovand/boids.git
 cd boids
 
 # Install dependencies
