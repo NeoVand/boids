@@ -392,20 +392,17 @@ export const BoidsCanvas = ({
       renderBoidsCanvas2D(canvas, state, colorPalette);
     }
     
-    // Show minimal debug info
-    if (state.showPerceptionRadius) {
+    // Draw attraction target if needed
+    if (mousePos && state.isAttracting) {
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.save();
         
-        // Draw attraction target if needed
-        if (mousePos && state.isAttracting) {
-          ctx.beginPath();
-          ctx.arc(mousePos.x, mousePos.y, 8, 0, Math.PI * 2);
-          ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
+        ctx.beginPath();
+        ctx.arc(mousePos.x, mousePos.y, 8, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
         
         ctx.restore();
       }
@@ -506,7 +503,7 @@ const renderBoidsInstanced = (
   colorPalette: string[],
   buffers: WebGLBuffers
 ) => {
-  const { boids, canvasWidth, canvasHeight, particleType } = state;
+  const { boids, canvasWidth, canvasHeight, particleType, colorizationMode } = state;
   
   // Early return if there are no boids or the projection matrix is invalid
   if (boids.length === 0) return;
@@ -549,8 +546,9 @@ const renderBoidsInstanced = (
     velocities[idx] = boid.velocity.x;
     velocities[idx + 1] = boid.velocity.y;
     
-    // Color data
-    const colorValues = parseColor(colorPalette[boid.id % colorPalette.length]);
+    // Color data based on selected color mode
+    const color = getBoidColor(boid, i, colorPalette, colorizationMode || 'default', state);
+    const colorValues = parseColor(color);
     colors[colorIdx] = colorValues[0] / 255;
     colors[colorIdx + 1] = colorValues[1] / 255;
     colors[colorIdx + 2] = colorValues[2] / 255;
@@ -579,7 +577,7 @@ const renderBoidsInstanced = (
       
       if (history.length < 2) continue;
       
-      const colorValues = parseColor(colorPalette[boid.id % colorPalette.length]);
+      const colorValues = parseColor(getBoidColor(boid, i, colorPalette, colorizationMode || 'default', state));
       
       const vertices = new Float32Array(history.length * 2);
       const trailColors = new Float32Array(history.length * 4);
@@ -591,11 +589,48 @@ const renderBoidsInstanced = (
         vertices[idx] = history[j].x;
         vertices[idx + 1] = history[j].y;
         
-        const alpha = j / history.length;
-        trailColors[colorIdx] = colorValues[0] / 255;
-        trailColors[colorIdx + 1] = colorValues[1] / 255;
-        trailColors[colorIdx + 2] = colorValues[2] / 255;
-        trailColors[colorIdx + 3] = 0.7 * (1 - alpha);
+        // Calculate progress from tail to head (reverse it to make head brighter)
+        const progress = (history.length - j - 1) / history.length;
+        
+        // For trails with orientation or speed coloring, calculate the color for each segment
+        if (colorizationMode === 'orientation' || colorizationMode === 'speed') {
+          // Estimate velocity for this history point
+          let dx = 0, dy = 0;
+          
+          // For all points except the last one, estimate velocity from the next point
+          if (j < history.length - 1) {
+            dx = history[j + 1].x - history[j].x;
+            dy = history[j + 1].y - history[j].y;
+          } 
+          // For the last point (head), use the boid's current velocity
+          else {
+            dx = boid.velocity.x;
+            dy = boid.velocity.y;
+          }
+          
+          // Create temporary boid with this history point
+          const historyBoid = {
+            id: boid.id,
+            position: history[j],
+            velocity: { x: dx, y: dy }
+          };
+          
+          // Get the appropriate color based on this point's data
+          const segmentColorValues = parseColor(
+            getBoidColor(historyBoid, i, colorPalette, colorizationMode, state)
+          );
+          
+          trailColors[colorIdx] = segmentColorValues[0] / 255;
+          trailColors[colorIdx + 1] = segmentColorValues[1] / 255;
+          trailColors[colorIdx + 2] = segmentColorValues[2] / 255;
+          trailColors[colorIdx + 3] = progress * 0.7; // Alpha decreases for older points
+        } else {
+          // For other coloring modes, use the boid's color with fading opacity
+          trailColors[colorIdx] = colorValues[0] / 255;
+          trailColors[colorIdx + 1] = colorValues[1] / 255;
+          trailColors[colorIdx + 2] = colorValues[2] / 255;
+          trailColors[colorIdx + 3] = progress * 0.7; // Alpha decreases for older points
+        }
       }
       
       gl.bindBuffer(gl.ARRAY_BUFFER, buffers.positionBuffer);
@@ -659,7 +694,6 @@ const renderBoidsInstanced = (
   switch (particleType) {
     case 'disk': pointSize = 10; break;
     case 'dot': pointSize = 4; break;
-    case 'arrow': pointSize = 12; break;
     case 'trail': pointSize = 4; break;
   }
   
@@ -681,7 +715,7 @@ const renderBoidsCanvas2D = (
   state: BoidsState,
   colorPalette: string[]
 ) => {
-  const { boids, canvasWidth, canvasHeight, particleType } = state;
+  const { boids, canvasWidth, canvasHeight, particleType, colorizationMode } = state;
   const ctx = canvas.getContext('2d');
   
   if (!ctx) return;
@@ -692,43 +726,59 @@ const renderBoidsCanvas2D = (
   // Draw each boid
   for (let i = 0; i < boids.length; i++) {
     const boid = boids[i];
-    const color = colorPalette[boid.id % colorPalette.length];
+    const color = getBoidColor(boid, i, colorPalette, colorizationMode || 'default', state);
     
     ctx.save();
     
     // Draw trails if enabled
     if (particleType === 'trail' && boid.history.length > 1) {
-      ctx.beginPath();
-      ctx.moveTo(boid.history[0].x, boid.history[0].y);
-      
-      for (let j = 1; j < boid.history.length; j++) {
-        ctx.lineTo(boid.history[j].x, boid.history[j].y);
+      // For trails, we want to draw line segments with gradient opacity
+      // Each segment can have its own color based on its velocity at that point
+      for (let j = 0; j < boid.history.length - 1; j++) {
+        const startPoint = boid.history[j];
+        const endPoint = boid.history[j + 1];
+        
+        // Calculate the progress from tail to head (newer points have higher opacity)
+        // Reverse the progress to make head brighter and tail faded
+        const progress = (boid.history.length - j - 1) / boid.history.length;
+        
+        // Get color for this history point if we're using orientation or speed colorization
+        let segmentColor = color;
+        if (colorizationMode === 'orientation' || colorizationMode === 'speed') {
+          // For history points, we don't have velocity stored
+          // So we can estimate it from the position difference
+          const dx = endPoint.x - startPoint.x;
+          const dy = endPoint.y - startPoint.y;
+          
+          // Create a temporary boid object with position and velocity
+          const historyBoid = {
+            id: boid.id,
+            position: startPoint,
+            velocity: { x: dx, y: dy }
+          };
+          
+          segmentColor = getBoidColor(historyBoid, i, colorPalette, colorizationMode, state);
+        }
+        
+        // Draw the line segment with transparency based on position in history
+        ctx.beginPath();
+        ctx.moveTo(startPoint.x, startPoint.y);
+        ctx.lineTo(endPoint.x, endPoint.y);
+        
+        // Convert color to rgba with proper opacity
+        // Parse the color (whether it's RGB or HSL) and convert to RGBA
+        const rgbValues = parseColor(segmentColor);
+        ctx.strokeStyle = `rgba(${rgbValues[0]}, ${rgbValues[1]}, ${rgbValues[2]}, ${progress * 0.8})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
-      
-      ctx.strokeStyle = color + '70'; // 70 is hex for ~44% opacity
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-    
-    // Draw the boid
-    ctx.fillStyle = color;
-    
-    // Position at the boid's current position
-    ctx.translate(boid.position.x, boid.position.y);
-    
-    if (particleType === 'arrow') {
-      // Draw an arrow pointing in the direction of velocity
-      const angle = Math.atan2(boid.velocity.y, boid.velocity.x);
-      ctx.rotate(angle);
-      
-      const size = 8;
-      ctx.beginPath();
-      ctx.moveTo(size, 0);
-      ctx.lineTo(-size / 2, size / 2);
-      ctx.lineTo(-size / 2, -size / 2);
-      ctx.closePath();
-      ctx.fill();
     } else {
+      // Draw the boid
+      ctx.fillStyle = color;
+      
+      // Position at the boid's current position
+      ctx.translate(boid.position.x, boid.position.y);
+      
       // Draw a circle for disk and dot types
       const radius = particleType === 'dot' ? 2 : 5;
       ctx.beginPath();
@@ -761,12 +811,173 @@ const generateColorPalette = (baseColor: string, count: number): string[] => {
   return palette;
 };
 
+// Get a color based on colorization mode
+const getBoidColor = (
+  boid: any, 
+  index: number, 
+  colorPalette: string[], 
+  colorizationMode: string,
+  state: BoidsState
+): string => {
+  switch (colorizationMode) {
+    case 'speed': {
+      // Color based on speed (magnitude of velocity)
+      const speed = Math.sqrt(boid.velocity.x * boid.velocity.x + boid.velocity.y * boid.velocity.y);
+      
+      // Use the state's maxSpeed parameter but scale it to create a better distribution
+      const maxSpeed = state.parameters.maxSpeed;
+      
+      // Most boids operate in the 25-85% of max speed range
+      // We'll scale our colors to emphasize this range
+      const minEffectiveSpeed = 0.1 * maxSpeed;  // Slow threshold (10% of max)
+      const maxEffectiveSpeed = 0.9 * maxSpeed;  // Fast threshold (90% of max)
+      
+      // Normalize to our effective range
+      let adjustedSpeed = (speed - minEffectiveSpeed) / (maxEffectiveSpeed - minEffectiveSpeed);
+      // Clamp to 0-1 range
+      adjustedSpeed = Math.max(0, Math.min(1, adjustedSpeed));
+      
+      // Use a tri-color scale: blue (cold) -> teal -> green -> yellow -> red (hot)
+      // Map 0-1 to 240-0 (blue to red) with extra emphasis on the middle range
+      let hue;
+      if (adjustedSpeed < 0.33) {
+        // Blue (240) to teal/green (180)
+        hue = 240 - (adjustedSpeed * 3) * 60;
+      } else if (adjustedSpeed < 0.66) {
+        // Teal/green (180) to yellow (60)
+        hue = 180 - ((adjustedSpeed - 0.33) * 3) * 120;
+      } else {
+        // Yellow (60) to red (0)
+        hue = 60 - ((adjustedSpeed - 0.66) * 3) * 60;
+      }
+      
+      // Boost saturation and lightness for better visibility of the coloring
+      return `hsl(${Math.round(hue)}, 90%, 60%)`;
+    }
+    case 'orientation': {
+      // Color based on direction angle of velocity vector
+      const angle = Math.atan2(boid.velocity.y, boid.velocity.x);
+      
+      // Convert to degrees and normalize to 0-360 range
+      // Add 180° to shift from [-180,180] to [0,360]
+      let degrees = (angle * 180 / Math.PI) + 180;
+      
+      // Use the HSL color wheel directly:
+      // 0° = Red, 60° = Yellow, 120° = Green, 180° = Cyan, 240° = Blue, 300° = Magenta
+      
+      // Create more vibrant colors with high saturation and balanced brightness
+      return `hsl(${Math.round(degrees)}, 100%, 65%)`;
+    }
+    case 'random': {
+      // Consistent random color based on boid ID
+      return `hsl(${(boid.id * 137.5) % 360}, 80%, 60%)`;
+    }
+    case 'neighbors': {
+      // Count neighbors using a simulated perception radius check
+      const perceptionRadius = state.parameters.perceptionRadius;
+      const perceptionRadiusSq = perceptionRadius * perceptionRadius;
+      
+      // Count neighbors in radius
+      let neighborCount = 0;
+      
+      // Sample all boids for a more accurate count
+      // Use spatial optimization if available
+      if (state.spatialGrid) {
+        // Get neighboring cells for this boid
+        const gridCellSize = state.gridCellSize;
+        const cellX = Math.floor(boid.position.x / gridCellSize);
+        const cellY = Math.floor(boid.position.y / gridCellSize);
+        
+        // Check surrounding cells (9 cells total for current and adjacent)
+        for (let i = -1; i <= 1; i++) {
+          for (let j = -1; j <= 1; j++) {
+            const cellKey = `${cellX + i},${cellY + j}`;
+            const cellBoids = state.spatialGrid.get(cellKey);
+            
+            if (cellBoids) {
+              // Count boids in this cell that are within perception radius
+              for (const otherIdx of cellBoids) {
+                const otherBoid = state.boids[otherIdx];
+                if (otherBoid.id !== boid.id) {
+                  const dx = boid.position.x - otherBoid.position.x;
+                  const dy = boid.position.y - otherBoid.position.y;
+                  const distSq = dx * dx + dy * dy;
+                  
+                  if (distSq < perceptionRadiusSq) {
+                    neighborCount++;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } else {
+        // Fallback to checking a limited number of boids
+        const maxCheck = Math.min(state.boids.length, 100);
+        for (let i = 0; i < maxCheck; i++) {
+          const otherBoid = state.boids[i];
+          if (otherBoid.id !== boid.id) {
+            const dx = boid.position.x - otherBoid.position.x;
+            const dy = boid.position.y - otherBoid.position.y;
+            const distSq = dx * dx + dy * dy;
+            
+            if (distSq < perceptionRadiusSq) {
+              neighborCount++;
+            }
+          }
+        }
+      }
+      
+      // Adjust thresholds based on observed neighbor counts
+      // Use a higher max to get a broader distribution
+      const maxNeighbors = 24;  // Increase threshold for better distribution
+      
+      // Linear mapping - no square root to avoid skewing toward higher values
+      const normalizedCount = Math.min(1, neighborCount / maxNeighbors);
+      
+      // Use a rainbow gradient with more blues and greens
+      let hue;
+      if (normalizedCount <= 0.4) {
+        // More room for blues (0-40% of range)
+        // Map 0-0.4 to 240-180 (blue to cyan)
+        hue = 240 - (normalizedCount / 0.4) * 60;
+      } else if (normalizedCount <= 0.7) {
+        // More room for greens (40-70% of range)
+        // Map 0.4-0.7 to 180-90 (cyan to yellow-green)
+        hue = 180 - ((normalizedCount - 0.4) / 0.3) * 90;
+      } else {
+        // Less room for reds (70-100% of range)
+        // Map 0.7-1.0 to 90-0 (yellow-green to red)
+        hue = 90 - ((normalizedCount - 0.7) / 0.3) * 90;
+      }
+      
+      // Use high saturation and brightness for vibrant colors
+      return `hsl(${Math.round(hue)}, 90%, 60%)`;
+    }
+    default:
+      // Default color from palette
+      return colorPalette[index % colorPalette.length];
+  }
+};
+
 // Parse a color string to RGB array
 const parseColor = (color: string): number[] => {
+  // Handle hsl colors
+  if (color.startsWith('hsl')) {
+    const match = color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+    if (match) {
+      const [h, s, l] = [parseInt(match[1]), parseInt(match[2]) / 100, parseInt(match[3]) / 100];
+      const [r, g, b] = hslToRgb(h, s, l);
+      return [r, g, b];
+    }
+  }
+  
+  // Handle rgb colors
   const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
   if (match) {
     return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])];
   }
+  
   return [65, 105, 225]; // Default blue
 };
 

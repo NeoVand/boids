@@ -9,8 +9,6 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Switch,
-  FormControlLabel,
   Button,
   Tooltip,
   alpha,
@@ -28,11 +26,11 @@ interface BoidsControlsProps {
   onParameterChange: (params: Partial<BoidsParameters>) => void;
   onParticleTypeChange: (type: ParticleType) => void;
   onToggleRunning: () => void;
-  onTogglePerceptionRadius: () => void;
   onReset: (count?: number) => void;
   isCollapsed?: boolean;
   onToggleCollapsed?: () => void;
   onPopulationChange?: (count: number) => void;
+  onColorizationChange?: (mode: string) => void;
 }
 
 // Compact slider with label and value
@@ -93,11 +91,11 @@ export const BoidsControls = ({
   onParameterChange,
   onParticleTypeChange,
   onToggleRunning,
-  onTogglePerceptionRadius,
   onReset,
   isCollapsed = false,
   onToggleCollapsed,
   onPopulationChange,
+  onColorizationChange,
 }: BoidsControlsProps) => {
   const [boidsCount, setBoidsCount] = useState<number>(state.boids.length);
   
@@ -131,6 +129,12 @@ export const BoidsControls = ({
     }
   };
 
+  const handleColorizationChange = (event: React.ChangeEvent<{ value: unknown }>) => {
+    if (onColorizationChange) {
+      onColorizationChange(event.target.value as string);
+    }
+  };
+
   return (
     <div>
       {/* Gear button for collapsed state */}
@@ -139,14 +143,14 @@ export const BoidsControls = ({
           size="small" 
           onClick={onToggleCollapsed}
           sx={{ 
-            backgroundColor: 'rgba(20, 20, 35, 0.5)',
-            backdropFilter: 'blur(10px)',
+            backgroundColor: 'rgba(0, 0, 0, 0.2)',
+            backdropFilter: 'blur(5px)',
             color: 'rgba(255,255,255,0.9)',
-            border: '1px solid rgba(100, 100, 150, 0.2)',
+            border: '1px solid rgba(100, 100, 150, 0.15)',
             width: 38,
             height: 38,
             '&:hover': {
-              backgroundColor: 'rgba(30, 30, 50, 0.6)',
+              backgroundColor: 'rgba(30, 30, 50, 0.4)',
             }
           }}
         >
@@ -160,14 +164,14 @@ export const BoidsControls = ({
           elevation={3}
           sx={{
             width: 240,
-            backgroundColor: 'rgba(20, 20, 30, 0.5)',
-            backdropFilter: 'blur(15px)',
-            color: 'white',
+            backgroundColor: 'rgba(0, 0, 0, 0.2)',
+            backdropFilter: 'blur(10px)',
+            color: 'black',
             borderRadius: '4px',
             overflow: 'hidden',
             transition: 'all 0.3s ease-in-out',
             border: '1px solid',
-            borderColor: 'rgba(100, 100, 150, 0.2)'
+            borderColor: 'rgba(100, 100, 150, 0.15)'
           }}
         >
           {/* Header bar with collapse toggle */}
@@ -177,8 +181,8 @@ export const BoidsControls = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               p: 1,
-              backgroundColor: 'rgba(30, 30, 45, 0.5)',
-              borderBottom: '1px solid rgba(100, 100, 150, 0.2)',
+              backgroundColor: 'rgba(14, 14, 21, 0.3)',
+              borderBottom: '1px solid rgba(100, 100, 150, 0.15)',
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -234,7 +238,6 @@ export const BoidsControls = ({
                 >
                   <MenuItem value="disk">Disk</MenuItem>
                   <MenuItem value="dot">Dot</MenuItem>
-                  <MenuItem value="arrow">Arrow</MenuItem>
                   <MenuItem value="trail">Trail</MenuItem>
                 </Select>
               </FormControl>
@@ -266,6 +269,35 @@ export const BoidsControls = ({
               </FormControl>
             </Box>
               
+            {/* Colorization selector */}
+            <FormControl size="small" fullWidth variant="outlined" sx={{ 
+              '.MuiOutlinedInput-notchedOutline': { 
+                borderColor: 'rgba(100, 100, 150, 0.3)' 
+              },
+              mb: 2
+            }}>
+              <InputLabel id="color-select-label" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>Colorize</InputLabel>
+              <Select
+                labelId="color-select-label"
+                value={state.colorizationMode || 'default'}
+                onChange={handleColorizationChange as any}
+                label="Colorize"
+                sx={{ 
+                  color: 'white', 
+                  fontSize: '0.75rem',
+                  '.MuiSelect-select': { 
+                    py: 0.75 
+                  }
+                }}
+              >
+                <MenuItem value="default">Default</MenuItem>
+                <MenuItem value="speed">Speed</MenuItem>
+                <MenuItem value="orientation">Orientation</MenuItem>
+                <MenuItem value="random">Random</MenuItem>
+                <MenuItem value="neighbors">Neighbors</MenuItem>
+              </Select>
+            </FormControl>
+
             {/* Behavior Sliders */}
             <CompactSlider
               label="Alignment"
@@ -343,26 +375,13 @@ export const BoidsControls = ({
               label="Population"
               value={boidsCount}
               min={10}
-              max={2000}
+              max={4000}
               step={10}
               onChange={handleBoidsCountChange}
               tooltip="Number of boids to simulate"
             />
             
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-              <FormControlLabel
-                control={
-                  <Switch 
-                    size="small" 
-                    checked={state.showPerceptionRadius} 
-                    onChange={onTogglePerceptionRadius}
-                    sx={{ mr: 0.5 }}
-                  />
-                }
-                label={<Typography variant="caption">Show Radius</Typography>}
-                sx={{ m: 0 }}
-              />
-              
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mt: 1 }}>
               <Button
                 variant="outlined"
                 size="small"

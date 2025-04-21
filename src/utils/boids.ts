@@ -46,6 +46,7 @@ export interface BoidsState {
   gridCellSize: number;
   cursorPosition: Vector2D | null;
   isAttracting: boolean;
+  colorizationMode: string;
 }
 
 export const DEFAULT_PARAMETERS: BoidsParameters = {
@@ -234,6 +235,7 @@ export const createInitialState = (
     gridCellSize: cellSize,
     cursorPosition: null,
     isAttracting: false,
+    colorizationMode: 'default'
   };
 };
 

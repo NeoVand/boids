@@ -96,17 +96,17 @@ export const BoidsSimulation = () => {
     });
   }, []);
 
-  // Toggle perception radius
-  const handleTogglePerceptionRadius = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      showPerceptionRadius: !prev.showPerceptionRadius
-    }));
-  }, []);
-
   // Toggle controls panel collapsed state
   const handleToggleControlsCollapsed = useCallback(() => {
     setIsControlsCollapsed(prev => !prev);
+  }, []);
+
+  // Handle colorization mode change
+  const handleColorizationChange = useCallback((mode: string) => {
+    setState(prev => ({
+      ...prev,
+      colorizationMode: mode
+    }));
   }, []);
 
   // Reset simulation
@@ -309,11 +309,11 @@ export const BoidsSimulation = () => {
           onParameterChange={handleParameterChange}
           onParticleTypeChange={handleParticleTypeChange}
           onToggleRunning={handleToggleRunning}
-          onTogglePerceptionRadius={handleTogglePerceptionRadius}
           onReset={handleReset}
           isCollapsed={isControlsCollapsed}
           onToggleCollapsed={handleToggleControlsCollapsed}
           onPopulationChange={handlePopulationChange}
+          onColorizationChange={handleColorizationChange}
         />
       </div>
       
