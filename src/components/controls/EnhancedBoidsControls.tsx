@@ -16,6 +16,7 @@ import {
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import TuneIcon from '@mui/icons-material/Tune';
 import SettingsIcon from '@mui/icons-material/Settings';
 // InfoIcon removed (no section headers)
 import PaletteIcon from '@mui/icons-material/Palette';
@@ -43,7 +44,8 @@ interface EnhancedBoidsControlsProps {
   state: BoidsState;
   onParameterChange: (params: Partial<BoidsParameters>) => void;
   onToggleRunning: () => void;
-  onReset: (count?: number) => void;
+  onResetParticles: (count?: number) => void;
+  onResetParameters: () => void;
   isCollapsed?: boolean;
   onToggleCollapsed?: () => void;
   onPopulationChange?: (count: number) => void;
@@ -243,7 +245,8 @@ export const EnhancedBoidsControls = ({
   state,
   onParameterChange,
   onToggleRunning,
-  onReset,
+  onResetParticles,
+  onResetParameters,
   isCollapsed = false,
   onToggleCollapsed,
   onPopulationChange,
@@ -265,8 +268,8 @@ export const EnhancedBoidsControls = ({
     onParameterChange({ [name]: value as number });
   };
 
-  const handleReset = () => {
-    onReset(boidsCount);
+  const handleResetParticles = () => {
+    onResetParticles(boidsCount);
   };
 
   const handleBoidsCountChange = (_event: Event, value: number | number[]) => {
@@ -435,66 +438,73 @@ export const EnhancedBoidsControls = ({
                   MenuProps={{
                     PaperProps: {
                       sx: {
-                        backgroundColor: 'rgba(20,22,26,0.9)',
+                        backgroundColor: 'rgba(20,22,26,0.95)',
                         backdropFilter: 'blur(12px)',
                         border: '1px solid rgba(255,255,255,0.08)',
                         color: chromeText,
+                        '& .MuiMenuItem-root': {
+                          fontSize: '0.72rem',
+                          py: 0.75,
+                          '&:hover': { backgroundColor: 'rgba(255,255,255,0.06)' },
+                          '&.Mui-selected': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                          '&.Mui-selected:hover': { backgroundColor: 'rgba(255,255,255,0.12)' },
+                        },
                       },
                     },
                   }}
                 >
                   <MuiMenuItem value="plane">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="plane" />
+                      <BoundaryIcon mode="plane" size={16} />
                       Plane (Bounce)
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="cylinderX">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="cylinderX" />
-                      Cylinder X (Glue L/R)
+                      <BoundaryIcon mode="cylinderX" size={16} />
+                      Cylinder X
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="cylinderY">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="cylinderY" />
-                      Cylinder Y (Glue T/B)
+                      <BoundaryIcon mode="cylinderY" size={16} />
+                      Cylinder Y
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="torus">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="torus" />
-                      Torus (Glue Both)
+                      <BoundaryIcon mode="torus" size={16} />
+                      Torus
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="mobiusX">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="mobiusX" />
-                      Mobius X (Flip L/R)
+                      <BoundaryIcon mode="mobiusX" size={16} />
+                      Möbius X
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="mobiusY">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="mobiusY" />
-                      Mobius Y (Flip T/B)
+                      <BoundaryIcon mode="mobiusY" size={16} />
+                      Möbius Y
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="kleinX">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="kleinX" />
-                      Klein X (Flip L/R, Glue T/B)
+                      <BoundaryIcon mode="kleinX" size={16} />
+                      Klein X
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="kleinY">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="kleinY" />
-                      Klein Y (Flip T/B, Glue L/R)
+                      <BoundaryIcon mode="kleinY" size={16} />
+                      Klein Y
                     </Box>
                   </MuiMenuItem>
                   <MuiMenuItem value="projectivePlane">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <BoundaryIcon mode="projectivePlane" />
-                      Projective Plane (Flip Both)
+                      <BoundaryIcon mode="projectivePlane" size={16} />
+                      Projective
                     </Box>
                   </MuiMenuItem>
                 </MuiSelect>
@@ -517,10 +527,17 @@ export const EnhancedBoidsControls = ({
                   MenuProps={{
                     PaperProps: {
                       sx: {
-                        backgroundColor: 'rgba(20,22,26,0.9)',
+                        backgroundColor: 'rgba(20,22,26,0.95)',
                         backdropFilter: 'blur(12px)',
                         border: '1px solid rgba(255,255,255,0.08)',
                         color: chromeText,
+                        '& .MuiMenuItem-root': {
+                          fontSize: '0.72rem',
+                          py: 0.75,
+                          '&:hover': { backgroundColor: 'rgba(255,255,255,0.06)' },
+                          '&.Mui-selected': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                          '&.Mui-selected:hover': { backgroundColor: 'rgba(255,255,255,0.12)' },
+                        },
                       },
                     },
                   }}
@@ -552,10 +569,17 @@ export const EnhancedBoidsControls = ({
                   MenuProps={{
                     PaperProps: {
                       sx: {
-                        backgroundColor: 'rgba(20,22,26,0.9)',
+                        backgroundColor: 'rgba(20,22,26,0.95)',
                         backdropFilter: 'blur(12px)',
                         border: '1px solid rgba(255,255,255,0.08)',
                         color: chromeText,
+                        '& .MuiMenuItem-root': {
+                          fontSize: '0.72rem',
+                          py: 0.75,
+                          '&:hover': { backgroundColor: 'rgba(255,255,255,0.06)' },
+                          '&.Mui-selected': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                          '&.Mui-selected:hover': { backgroundColor: 'rgba(255,255,255,0.12)' },
+                        },
                       },
                     },
                   }}
@@ -751,22 +775,46 @@ export const EnhancedBoidsControls = ({
               />
             </Box>
             
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
               <Button
                 variant="outlined"
                 size="small"
                 startIcon={<RestartAltIcon />}
-                onClick={handleReset}
+                onClick={handleResetParticles}
                 sx={{ 
+                  flex: 1,
                   fontSize: '0.72rem', 
                   py: 0.5,
                   textTransform: 'none',
                   borderColor: '#2a2f36',
                   color: chromeText,
-                  '&:hover': { borderColor: '#3a414b', backgroundColor: 'rgba(255,255,255,0.04)' }
+                  '&:hover': { borderColor: '#3a414b', backgroundColor: 'rgba(255,255,255,0.04)' },
+                  '&:focus': { outline: 'none' },
+                  '&:focus-visible': { outline: 'none', boxShadow: 'none' },
+                  '&.Mui-focusVisible': { outline: 'none', boxShadow: 'none' }
                 }}
               >
-                Reset
+                Particles
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<TuneIcon />}
+                onClick={onResetParameters}
+                sx={{ 
+                  flex: 1,
+                  fontSize: '0.72rem', 
+                  py: 0.5,
+                  textTransform: 'none',
+                  borderColor: '#2a2f36',
+                  color: chromeText,
+                  '&:hover': { borderColor: '#3a414b', backgroundColor: 'rgba(255,255,255,0.04)' },
+                  '&:focus': { outline: 'none' },
+                  '&:focus-visible': { outline: 'none', boxShadow: 'none' },
+                  '&.Mui-focusVisible': { outline: 'none', boxShadow: 'none' }
+                }}
+              >
+                Defaults
               </Button>
             </Box>
           </Box>

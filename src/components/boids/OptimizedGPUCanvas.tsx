@@ -288,12 +288,12 @@ export const OptimizedGPUCanvas = ({
     }
   }, [state.parameters, state.colorizationMode, mousePos, state.isAttracting]);
   
-  // Sync boid count changes
+  // Sync boid changes (including resets where count stays same but positions change)
   useEffect(() => {
     if (gpuBoidsRef.current && state.boids.length > 0) {
       gpuBoidsRef.current.syncFromReactState(state.boids);
     }
-  }, [state.boids.length]);
+  }, [state.boids]);
   
   // Animation loop
   useEffect(() => {

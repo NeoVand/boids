@@ -98,9 +98,9 @@ export const DEFAULT_PARAMETERS: BoidsParameters = {
   maxForce: 0.1,
   noiseStrength: 0.35,
   rebelChance: 0.02, // 2% of boids ignore flocking rules
-  edgeBehavior: 'bounce',
+  edgeBehavior: 'wrap',
   edgeMargin: 50,
-  boundaryMode: 'plane',
+  boundaryMode: 'torus',
   trailLength: 30,
   attractionForce: 0.5,
   attractionMode: 'attract',

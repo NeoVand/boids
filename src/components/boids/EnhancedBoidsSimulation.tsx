@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { BoidsCanvas } from './BoidsCanvas';
 import { OptimizedGPUCanvas, type PerformanceStats } from './OptimizedGPUCanvas';
 import { EnhancedBoidsControls } from '../controls/EnhancedBoidsControls';
-import { createBoid, createInitialState, updateBoidsInPlace, BoidsState, BoidsParameters } from '../../utils/boids';
+import { createBoid, createInitialState, updateBoidsInPlace, BoidsState, BoidsParameters, DEFAULT_PARAMETERS } from '../../utils/boids';
 
 export const EnhancedBoidsSimulation = () => {
   // Use full screen dimensions for canvas
@@ -111,21 +111,30 @@ export const EnhancedBoidsSimulation = () => {
     }));
   }, []);
 
-  // Reset simulation
-  const handleReset = useCallback((count?: number) => {
-    setState(() => {
+  // Reset particles (positions/velocities) - keeps current parameters
+  const handleResetParticles = useCallback((count?: number) => {
+    setState(prev => {
       const newState = createInitialState(
-        count || state.boids.length,
-        state.canvasWidth,
-        state.canvasHeight
+        count || prev.boids.length,
+        prev.canvasWidth,
+        prev.canvasHeight
       );
       // Preserve current parameters
-      newState.parameters = { ...state.parameters };
-      newState.particleType = state.particleType;
-      newState.colorizationMode = state.colorizationMode;
+      newState.parameters = { ...prev.parameters };
+      newState.particleType = prev.particleType;
+      newState.colorizationMode = prev.colorizationMode;
       return newState;
     });
-  }, [state]);
+  }, []);
+
+  // Reset parameters to defaults - keeps current particles
+  const handleResetParameters = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      parameters: { ...DEFAULT_PARAMETERS },
+      colorizationMode: 'orientation'
+    }));
+  }, []);
 
   // Handle population change
   const handlePopulationChange = useCallback((count: number) => {
@@ -329,7 +338,8 @@ export const EnhancedBoidsSimulation = () => {
           state={state}
           onParameterChange={handleParameterChange}
           onToggleRunning={handleToggleRunning}
-          onReset={handleReset}
+          onResetParticles={handleResetParticles}
+          onResetParameters={handleResetParameters}
           isCollapsed={isControlsCollapsed}
           onToggleCollapsed={handleToggleControlsCollapsed}
           onPopulationChange={handlePopulationChange}

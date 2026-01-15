@@ -137,129 +137,110 @@ void main() {
   vec2 pos = aPosition;
   vec2 vel = aVelocity;
   
-  // Generate stable random value for this boid (changes slowly over time)
-  float boidRand = fract(sin(float(boidIndex) * 12.9898 + floor(uDeltaTime * 0.1) * 0.1) * 43758.5453);
-  
-  // Check if this boid is a "rebel" that ignores flocking rules
+  // Dynamic rebel check - changes every frame so different boids rebel at different times
+  // This creates natural, organic variation rather than permanently "broken" boids
+  float boidRand = fract(sin(float(boidIndex) * 12.9898 + uDeltaTime * 1000.0) * 43758.5453);
   bool isRebel = boidRand < uRebelChance;
   
   vec2 acceleration = vec2(0.0);
   
-  if (isRebel) {
-    // Rebels move randomly - they ignore all flocking rules
-    // Generate time-varying random direction for more organic movement
-    float rebelNoise = fract(sin(float(boidIndex) * 43.758 + uDeltaTime * 3.14159) * 12345.6789);
-    float rebelAngle = rebelNoise * 6.28318;
+  // ALL boids do flocking - even rebels. This keeps them part of the simulation.
+  float perceptionSq = uPerceptionRadius * uPerceptionRadius;
+  
+  // Accumulators for flocking forces
+  vec2 alignSum = vec2(0.0);
+  vec2 cohesionSum = vec2(0.0);
+  vec2 separationSum = vec2(0.0);
+  int neighborCount = 0;
+  
+  // Sample neighbors - limit to reasonable count for performance
+  int maxCheck = min(uNumBoids, 500);
+  int step = max(1, uNumBoids / maxCheck);
+  
+  for (int i = 0; i < uNumBoids && neighborCount < 50; i += step) {
+    if (i == boidIndex) continue;
     
-    // Strong random steering force
-    vec2 rebelDir = vec2(cos(rebelAngle), sin(rebelAngle));
-    vec2 desired = rebelDir * uMaxSpeed;
-    vec2 steer = desired - vel;
-    steer = limit(steer, uMaxForce * 1.5);
-    acceleration = steer;
+    vec2 otherPos = getBoidPos(i);
+    vec2 diff = pos - otherPos;
+    float distSq = dot(diff, diff);
     
-    // Rebels still respond to cursor but weaker
-    if (uIsAttracting > 0.5) {
-      vec2 target = vec2(uAttractionX, uAttractionY);
-      vec2 toTarget = target - pos;
-      float dist = length(toTarget);
-      if (dist > 0.0) {
-        vec2 cursorSteer = (toTarget / dist) * uMaxSpeed - vel;
-        cursorSteer = limit(cursorSteer, uMaxForce * 0.5);
-        acceleration += cursorSteer * uAttractionForce * 0.3;
-      }
+    if (distSq < perceptionSq && distSq > 0.0001) {
+      vec2 otherVel = getBoidVel(i);
+      float dist = sqrt(distSq);
+      
+      // Alignment: average velocity
+      alignSum += otherVel;
+      
+      // Cohesion: average position
+      cohesionSum += otherPos;
+      
+      // Separation: weighted away from neighbors
+      separationSum += diff / dist;
+      
+      neighborCount++;
     }
-  } else {
-    // Normal boid - follows flocking rules
-    float perceptionSq = uPerceptionRadius * uPerceptionRadius;
+  }
+  
+  // Rebels reduce flocking influence but don't ignore it completely
+  float flockingStrength = isRebel ? 0.3 : 1.0;
+  
+  if (neighborCount > 0) {
+    float n = float(neighborCount);
     
-    // Accumulators for flocking forces
-    vec2 alignSum = vec2(0.0);
-    vec2 cohesionSum = vec2(0.0);
-    vec2 separationSum = vec2(0.0);
-    int neighborCount = 0;
-    
-    // Sample neighbors - limit to reasonable count for performance
-    int maxCheck = min(uNumBoids, 500);
-    int step = max(1, uNumBoids / maxCheck);
-    
-    for (int i = 0; i < uNumBoids && neighborCount < 50; i += step) {
-      if (i == boidIndex) continue;
-      
-      vec2 otherPos = getBoidPos(i);
-      vec2 diff = pos - otherPos;
-      float distSq = dot(diff, diff);
-      
-      if (distSq < perceptionSq && distSq > 0.0001) {
-        vec2 otherVel = getBoidVel(i);
-        float dist = sqrt(distSq);
-        
-        // Alignment: average velocity
-        alignSum += otherVel;
-        
-        // Cohesion: average position
-        cohesionSum += otherPos;
-        
-        // Separation: weighted away from neighbors
-        separationSum += diff / dist;
-        
-        neighborCount++;
-      }
+    // Alignment
+    vec2 avgVel = alignSum / n;
+    float avgVelLen = length(avgVel);
+    if (avgVelLen > 0.0001) {
+      vec2 alignSteer = (avgVel / avgVelLen) * uMaxSpeed - vel;
+      alignSteer = limit(alignSteer, uMaxForce);
+      acceleration += alignSteer * uAlignmentForce * flockingStrength;
     }
     
-    if (neighborCount > 0) {
-      float n = float(neighborCount);
-      
-      // Alignment
-      vec2 avgVel = alignSum / n;
-      float avgVelLen = length(avgVel);
-      if (avgVelLen > 0.0001) {
-        vec2 alignSteer = (avgVel / avgVelLen) * uMaxSpeed - vel;
-        alignSteer = limit(alignSteer, uMaxForce);
-        acceleration += alignSteer * uAlignmentForce;
-      }
-      
-      // Cohesion  
-      vec2 centerOfMass = cohesionSum / n;
-      vec2 toCenter = centerOfMass - pos;
-      float toCenterLen = length(toCenter);
-      if (toCenterLen > 0.0001) {
-        vec2 cohesionSteer = (toCenter / toCenterLen) * uMaxSpeed - vel;
-        cohesionSteer = limit(cohesionSteer, uMaxForce);
-        acceleration += cohesionSteer * uCohesionForce;
-      }
-      
-      // Separation
-      vec2 avgSep = separationSum / n;
-      float avgSepLen = length(avgSep);
-      if (avgSepLen > 0.0001) {
-        vec2 sepSteer = (avgSep / avgSepLen) * uMaxSpeed - vel;
-        sepSteer = limit(sepSteer, uMaxForce);
-        acceleration += sepSteer * uSeparationForce;
-      }
+    // Cohesion  
+    vec2 centerOfMass = cohesionSum / n;
+    vec2 toCenter = centerOfMass - pos;
+    float toCenterLen = length(toCenter);
+    if (toCenterLen > 0.0001) {
+      vec2 cohesionSteer = (toCenter / toCenterLen) * uMaxSpeed - vel;
+      cohesionSteer = limit(cohesionSteer, uMaxForce);
+      acceleration += cohesionSteer * uCohesionForce * flockingStrength;
     }
     
-    // Cursor attraction/repulsion
-    if (uIsAttracting > 0.5) {
-      vec2 target = vec2(uAttractionX, uAttractionY);
-      vec2 desired = target - pos;
-      float dist = length(desired);
-      
-      if (dist > 0.0) {
-        desired = (desired / dist) * uMaxSpeed;
-        vec2 steer = desired - vel;
-        steer = limit(steer, uMaxForce * 2.0);
-        acceleration += steer * uAttractionForce;
-      }
+    // Separation - rebels still avoid collisions
+    vec2 avgSep = separationSum / n;
+    float avgSepLen = length(avgSep);
+    if (avgSepLen > 0.0001) {
+      vec2 sepSteer = (avgSep / avgSepLen) * uMaxSpeed - vel;
+      sepSteer = limit(sepSteer, uMaxForce);
+      acceleration += sepSteer * uSeparationForce;
     }
+  }
+  
+  // Cursor attraction/repulsion
+  if (uIsAttracting > 0.5) {
+    vec2 target = vec2(uAttractionX, uAttractionY);
+    vec2 desired = target - pos;
+    float dist = length(desired);
     
-    // Add noise for organic movement - now uses the actual noiseStrength parameter
-    if (uNoiseStrength > 0.0) {
-      float noise = fract(sin(float(boidIndex) * 12.9898 + uDeltaTime * 1000.0) * 43758.5453);
-      float noiseAngle = noise * 6.28318;
-      // Scale noise by noiseStrength - at 1.0, noise equals maxForce
-      acceleration += vec2(cos(noiseAngle), sin(noiseAngle)) * uMaxForce * uNoiseStrength;
+    if (dist > 0.0) {
+      desired = (desired / dist) * uMaxSpeed;
+      vec2 steer = desired - vel;
+      steer = limit(steer, uMaxForce * 2.0);
+      acceleration += steer * uAttractionForce;
     }
+  }
+  
+  // Add noise for organic movement
+  // Base noise for all boids
+  float noise = fract(sin(float(boidIndex) * 12.9898 + uDeltaTime * 1000.0) * 43758.5453);
+  float noiseAngle = noise * 6.28318;
+  
+  // Rebels get MUCH stronger random impulse this frame
+  float noiseMultiplier = isRebel ? 3.0 : 1.0;
+  float effectiveNoise = uNoiseStrength * noiseMultiplier;
+  
+  if (effectiveNoise > 0.0) {
+    acceleration += vec2(cos(noiseAngle), sin(noiseAngle)) * uMaxForce * effectiveNoise;
   }
   
   // Update velocity (match CPU: no deltaTime multiplication)
@@ -563,7 +544,7 @@ export class OptimizedGPUBoids {
       colorSpectrum: 'chrome',
       colorSensitivity: 1.0,
       edgeMargin: 50,
-      boundaryMode: 'plane'
+      boundaryMode: 'torus'
     };
 
     this.prevPositions = new Float32Array(config.maxBoids * 2);
