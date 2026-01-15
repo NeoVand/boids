@@ -113,24 +113,62 @@ export const OptimizedGPUCanvas = ({
       setIsDragging(true);
       setMousePos(position);
       onCursorPositionChange?.(position);
-      onAttractionStateChange?.(true);
+      onAttractionStateChange?.(true); // Strong attraction on click
     }
   }, [getCanvasCoordinates, onCursorPositionChange, onAttractionStateChange]);
   
   const handlePointerMove = useCallback((e: MouseEvent | TouchEvent) => {
-    if (state.isAttracting || isDragging) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // Check if pointer is over canvas
+    const rect = canvas.getBoundingClientRect();
+    let clientX: number, clientY: number;
+    
+    if ('touches' in e) {
+      if (e.touches.length === 0) return;
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
+    let overCanvas = clientX >= rect.left && clientX <= rect.right && 
+                     clientY >= rect.top && clientY <= rect.bottom;
+    // If the cursor is over UI (sidebar), disable weak attraction
+    if (!('touches' in e)) {
+      const target = e.target as Node | null;
+      if (target && !canvas.contains(target)) {
+        overCanvas = false;
+      }
+    }
+    
+    // Always track cursor position when over canvas (for weak attraction)
+    if (overCanvas) {
       const position = getCanvasCoordinates(e);
       if (position) {
         setMousePos(position);
         onCursorPositionChange?.(position);
       }
+    } else if (!isDragging) {
+      // Clear cursor position when not over canvas and not dragging
+      setMousePos(null);
+      onCursorPositionChange?.(null);
     }
-  }, [getCanvasCoordinates, onCursorPositionChange, state.isAttracting, isDragging]);
+  }, [getCanvasCoordinates, onCursorPositionChange, isDragging]);
   
   const handlePointerUp = useCallback(() => {
     setIsDragging(false);
-    onAttractionStateChange?.(false);
+    onAttractionStateChange?.(false); // Back to weak attraction
   }, [onAttractionStateChange]);
+  
+  const handlePointerLeave = useCallback(() => {
+    if (!isDragging) {
+      setMousePos(null);
+      onCursorPositionChange?.(null);
+    }
+  }, [isDragging, onCursorPositionChange]);
   
   // Setup event listeners
   useEffect(() => {
@@ -143,6 +181,7 @@ export const OptimizedGPUCanvas = ({
     };
     
     canvas.addEventListener('mousedown', handlePointerDown);
+    canvas.addEventListener('mouseleave', handlePointerLeave);
     window.addEventListener('mousemove', handlePointerMove);
     window.addEventListener('mouseup', handlePointerUp);
     
@@ -152,6 +191,7 @@ export const OptimizedGPUCanvas = ({
     
     return () => {
       canvas.removeEventListener('mousedown', handlePointerDown);
+      canvas.removeEventListener('mouseleave', handlePointerLeave);
       window.removeEventListener('mousemove', handlePointerMove);
       window.removeEventListener('mouseup', handlePointerUp);
       
@@ -159,7 +199,7 @@ export const OptimizedGPUCanvas = ({
       window.removeEventListener('touchmove', handlePointerMove);
       window.removeEventListener('touchend', handlePointerUp);
     };
-  }, [handlePointerDown, handlePointerMove, handlePointerUp]);
+  }, [handlePointerDown, handlePointerMove, handlePointerUp, handlePointerLeave]);
   
   // Initialize WebGL2 and GPU simulation
   useEffect(() => {
@@ -263,6 +303,12 @@ export const OptimizedGPUCanvas = ({
   // Update GPU parameters when state changes
   useEffect(() => {
     if (gpuBoidsRef.current) {
+      const isCursorActive = Boolean(mousePos) && state.parameters.attractionMode !== 'off';
+      const attractionBoost = state.isAttracting ? 4 : 0.1;
+      const attractionForce =
+        state.parameters.attractionMode === 'off'
+          ? 0
+          : state.parameters.attractionForce * (state.parameters.attractionMode === 'repel' ? -1 : 1);
       gpuBoidsRef.current.updateParameters({
         alignmentForce: state.parameters.alignmentForce,
         cohesionForce: state.parameters.cohesionForce,
@@ -270,10 +316,10 @@ export const OptimizedGPUCanvas = ({
         perceptionRadius: state.parameters.perceptionRadius,
         maxSpeed: state.parameters.maxSpeed,
         maxForce: state.parameters.maxForce,
-        attractionForce: state.parameters.attractionForce * (state.parameters.attractionMode === 'repel' ? -1 : 1),
+        attractionForce,
         attractionX: mousePos?.x || 0,
         attractionY: mousePos?.y || 0,
-        isAttracting: state.isAttracting && state.parameters.attractionMode !== 'off' ? 1 : 0,
+        isAttracting: isCursorActive ? attractionBoost : 0,
         boidSize: state.parameters.boidSize ?? 0.5,
         noiseStrength: state.parameters.noiseStrength ?? 0.35,
         rebelChance: state.parameters.rebelChance ?? 0.05,

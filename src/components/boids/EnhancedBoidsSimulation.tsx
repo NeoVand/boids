@@ -25,7 +25,7 @@ export const EnhancedBoidsSimulation = () => {
   // Use a single state object for both parameters and state
   const [state, setState] = useState<BoidsState>(() => {
     // Create initial state with reasonable number of boids
-    const initialBoidCount = 1500;
+    const initialBoidCount = 5000;
     const initialState = createInitialState(initialBoidCount, canvasWidth, canvasHeight);
     
     // Keep defaults from DEFAULT_PARAMETERS for consistent initial UX

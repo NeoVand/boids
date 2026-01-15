@@ -216,8 +216,9 @@ void main() {
     }
   }
   
-  // Cursor attraction/repulsion
-  if (uIsAttracting > 0.5) {
+  // Cursor attraction/repulsion (uIsAttracting is a boost multiplier)
+  float attractionBoost = max(0.0, uIsAttracting);
+  if (attractionBoost > 0.0) {
     vec2 target = vec2(uAttractionX, uAttractionY);
     vec2 desired = target - pos;
     float dist = length(desired);
@@ -226,7 +227,7 @@ void main() {
       desired = (desired / dist) * uMaxSpeed;
       vec2 steer = desired - vel;
       steer = limit(steer, uMaxForce * 2.0);
-      acceleration += steer * uAttractionForce;
+      acceleration += steer * uAttractionForce * attractionBoost;
     }
   }
   

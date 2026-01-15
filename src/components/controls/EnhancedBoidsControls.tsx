@@ -8,7 +8,6 @@ import {
   Select as MuiSelect,
   MenuItem as MuiMenuItem,
   Button,
-  Tooltip,
   Divider,
   ToggleButton,
   ToggleButtonGroup,
@@ -31,8 +30,7 @@ import GrainIcon from '@mui/icons-material/Grain';
 import AdsClickIcon from '@mui/icons-material/AdsClick';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import GroupsIcon from '@mui/icons-material/Groups';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-// TuneIcon removed (no section headers)
+// TuneIcon and InfoOutlinedIcon removed
 import CallSplitIcon from '@mui/icons-material/CallSplit';
 import NorthEastIcon from '@mui/icons-material/NorthEast';
 import SouthWestIcon from '@mui/icons-material/SouthWest';
@@ -59,7 +57,7 @@ interface EnhancedBoidsControlsProps {
   onToggleGPU?: (enabled: boolean) => void;
 }
 
-// Compact slider with label and value
+// Compact slider with label and value (info icons removed for cleaner UI)
 const CompactSlider = ({ 
   label, 
   value, 
@@ -67,7 +65,6 @@ const CompactSlider = ({
   max, 
   step,
   onChange,
-  tooltip,
   icon
 }: { 
   label: string;
@@ -76,7 +73,6 @@ const CompactSlider = ({
   max: number;
   step: number;
   onChange: (event: Event, value: number | number[]) => void;
-  tooltip: string;
   icon?: React.ReactNode;
 }) => {
   return (
@@ -87,9 +83,6 @@ const CompactSlider = ({
           <Typography variant="caption" sx={{ color: 'rgba(220,225,232,0.9)', fontWeight: 500 }}>
             {label}
           </Typography>
-          <Tooltip title={tooltip} arrow placement="top">
-            <InfoOutlinedIcon sx={{ ml: 0.25, fontSize: '0.75rem', color: 'rgba(200,205,212,0.7)' }} />
-          </Tooltip>
         </Box>
         <Typography
           variant="caption"
@@ -600,7 +593,6 @@ export const EnhancedBoidsControls = ({
                   max={3}
                   step={0.1}
                   onChange={handleSliderChange('colorSensitivity')}
-                  tooltip="Amplify or soften color variation"
                 />
               </FieldBlock>
             </Box>
@@ -632,6 +624,9 @@ export const EnhancedBoidsControls = ({
                     px: 0.5,
                     py: 0.25,
                     backgroundColor: 'rgba(255,255,255,0.03)',
+                    '&:focus': { outline: 'none' },
+                    '&:focus-visible': { outline: 'none', boxShadow: 'none' },
+                    '&.Mui-focusVisible': { outline: 'none', boxShadow: 'none' },
                   },
                   '& .Mui-selected': {
                     backgroundColor: 'rgba(140,150,165,0.2)',
@@ -660,7 +655,6 @@ export const EnhancedBoidsControls = ({
                 max={1}
                 step={0.05}
                 onChange={handleSliderChange('boidSize')}
-                tooltip="Visual size multiplier for boids"
                 icon={<StraightenIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -670,7 +664,6 @@ export const EnhancedBoidsControls = ({
                 max={200}
                 step={5}
                 onChange={handleSliderChange('perceptionRadius')}
-                tooltip="How far boids can see"
                 icon={<VisibilityIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -680,7 +673,6 @@ export const EnhancedBoidsControls = ({
                 max={3}
                 step={0.1}
                 onChange={handleSliderChange('alignmentForce')}
-                tooltip="How strongly boids align with neighbors"
                 icon={<CenterFocusStrongIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -690,7 +682,6 @@ export const EnhancedBoidsControls = ({
                 max={3}
                 step={0.1}
                 onChange={handleSliderChange('cohesionForce')}
-                tooltip="How strongly boids are attracted to the flock center"
                 icon={<AltRouteIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -700,7 +691,6 @@ export const EnhancedBoidsControls = ({
                 max={4}
                 step={0.1}
                 onChange={handleSliderChange('separationForce')}
-                tooltip="How strongly boids avoid each other"
                 icon={<CallSplitIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -710,7 +700,6 @@ export const EnhancedBoidsControls = ({
                 max={1}
                 step={0.05}
                 onChange={handleSliderChange('noiseStrength')}
-                tooltip="Randomness added to movement for organic behavior"
                 icon={<GrainIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -720,7 +709,6 @@ export const EnhancedBoidsControls = ({
                 max={30}
                 step={1}
                 onChange={(_e, v) => onParameterChange({ rebelChance: (v as number) / 100 })}
-                tooltip="Percentage of boids that ignore flocking rules and move independently"
                 icon={<ShuffleIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -730,7 +718,6 @@ export const EnhancedBoidsControls = ({
                 max={10}
                 step={0.5}
                 onChange={handleSliderChange('maxSpeed')}
-                tooltip="Maximum velocity of boids"
                 icon={<SpeedIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -740,7 +727,6 @@ export const EnhancedBoidsControls = ({
                 max={1.0}
                 step={0.01}
                 onChange={handleSliderChange('maxForce')}
-                tooltip="Maximum steering force"
                 icon={<BoltIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -750,7 +736,6 @@ export const EnhancedBoidsControls = ({
                 max={1}
                 step={0.05}
                 onChange={handleSliderChange('attractionForce')}
-                tooltip="Strength of attraction to cursor"
                 icon={<AdsClickIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
@@ -760,17 +745,15 @@ export const EnhancedBoidsControls = ({
                 max={100}
                 step={1}
                 onChange={handleSliderChange('trailLength')}
-                tooltip="Previous positions kept per boid"
                 icon={<TimelineIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
                 label="Population"
                 value={boidsCount}
                 min={10}
-                max={10000}
+                max={50000}
                 step={100}
                 onChange={handleBoidsCountChange}
-                tooltip={`Number of boids to simulate (max: 10k)`}
                 icon={<GroupsIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
             </Box>

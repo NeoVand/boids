@@ -845,7 +845,7 @@ export const updateBoids = (state: BoidsState): BoidsState => {
   if (!state.isRunning) return state;
   
   const { boids, canvasWidth, canvasHeight, parameters, gridCellSize, cursorPosition } = state;
-  const cursorBoostMultiplier = state.isAttracting ? 10 : 1;
+  const cursorBoostMultiplier = state.isAttracting ? 4 : 0.1;
   
   // Update spatial grid for this frame - reuse existing grid
   const spatialGrid = updateSpatialGrid(boids, gridCellSize, canvasWidth, canvasHeight, state.spatialGrid);
