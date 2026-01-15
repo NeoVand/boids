@@ -42,12 +42,14 @@ const theme = createTheme({
           margin: 0,
           padding: 0,
           height: '100%',
+          minHeight: '100dvh',
           overflow: 'hidden'
         },
         body: {
           margin: 0,
           padding: 0,
           height: '100%',
+          minHeight: '100dvh',
           overflow: 'hidden',
           scrollbarWidth: 'thin',
           '&::-webkit-scrollbar': {
@@ -63,11 +65,17 @@ const theme = createTheme({
           },
         },
         '#root': {
-          height: '100%'
+          height: '100%',
+          minHeight: '100dvh',
+          width: '100%',
+          maxWidth: 'none',
+          padding: 0
         },
         '.App': {
-          height: '100vh',
-          width: '100vw',
+          height: '100dvh',
+          width: '100dvw',
+          minHeight: '100vh',
+          minWidth: '100vw',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column'
