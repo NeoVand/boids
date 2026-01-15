@@ -76,7 +76,7 @@ export interface BoidsState {
 export const DEFAULT_PARAMETERS: BoidsParameters = {
   alignmentForce: 1.0,
   cohesionForce: 1.0,
-  separationForce: 1.3,
+  separationForce: 1.0,
   perceptionRadius: 50,
   maxSpeed: 5.0,
   maxForce: 0.1,
@@ -87,7 +87,7 @@ export const DEFAULT_PARAMETERS: BoidsParameters = {
   attractionForce: 0.5,
   attractionMode: 'attract',
   colorSpectrum: 'chrome',
-  colorSensitivity: 1.9,
+  colorSensitivity: 1.0,
   boidSize: 0.5,
 };
 

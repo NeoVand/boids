@@ -17,7 +17,7 @@ import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SettingsIcon from '@mui/icons-material/Settings';
-import InfoIcon from '@mui/icons-material/Info';
+// InfoIcon removed (no section headers)
 import PaletteIcon from '@mui/icons-material/Palette';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import SpeedIcon from '@mui/icons-material/Speed';
@@ -31,7 +31,7 @@ import AdsClickIcon from '@mui/icons-material/AdsClick';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import GroupsIcon from '@mui/icons-material/Groups';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import TuneIcon from '@mui/icons-material/Tune';
+// TuneIcon removed (no section headers)
 import CallSplitIcon from '@mui/icons-material/CallSplit';
 import NorthEastIcon from '@mui/icons-material/NorthEast';
 import SouthWestIcon from '@mui/icons-material/SouthWest';
@@ -116,14 +116,7 @@ const CompactSlider = ({
   );
 };
 
-const SectionHeader = ({ icon, label }: { icon: React.ReactNode; label: string }) => (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
-    {icon}
-    <Typography variant="caption" sx={{ color: 'rgba(220,225,232,0.9)', fontWeight: 600, letterSpacing: '0.02em' }}>
-      {label}
-    </Typography>
-  </Box>
-);
+// Section headers removed per request
 
 const FieldBlock = ({
   icon,
@@ -310,7 +303,6 @@ export const EnhancedBoidsControls = ({
               },
             }}
           >
-            <SectionHeader icon={<InfoIcon sx={{ color: chromeText }} fontSize="small" />} label="View" />
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
               <FieldBlock icon={<CompareArrowsIcon sx={{ fontSize: '0.85rem' }} />} label="Edge">
                 <ToggleButtonGroup
@@ -471,7 +463,6 @@ export const EnhancedBoidsControls = ({
 
             <Divider sx={{ my: 1.5, borderColor: '#2a2f36' }} />
 
-            <SectionHeader icon={<TuneIcon sx={{ color: chromeText }} fontSize="small" />} label="Dynamics" />
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
               <CompactSlider
                 label="Size"
