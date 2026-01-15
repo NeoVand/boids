@@ -59,43 +59,7 @@ export interface GPUBoidsParameters {
 // GLSL Shaders for Spatial Hash Grid Based Simulation
 // ============================================================================
 
-// Step 1: Build spatial hash grid (compute boid cell indices)
-const CELL_ASSIGNMENT_VS = `#version 300 es
-precision highp float;
-
-in vec2 aPosition;
-
-uniform float uCellSize;
-uniform float uGridWidth;
-
-flat out int vCellIndex;
-flat out int vBoidIndex;
-
-void main() {
-  vBoidIndex = gl_VertexID;
-  
-  // Compute cell coordinates
-  int cellX = int(floor(aPosition.x / uCellSize));
-  int cellY = int(floor(aPosition.y / uCellSize));
-  
-  // Clamp to grid bounds
-  cellX = clamp(cellX, 0, int(uGridWidth) - 1);
-  cellY = clamp(cellY, 0, int(uGridWidth) - 1);
-  
-  vCellIndex = cellY * int(uGridWidth) + cellX;
-  
-  gl_Position = vec4(0.0);
-  gl_PointSize = 1.0;
-}
-`;
-
-const CELL_ASSIGNMENT_FS = `#version 300 es
-precision highp float;
-out vec4 fragColor;
-void main() { discard; }
-`;
-
-// Step 2: Simple boids simulation (texture-based neighbor lookup)
+// Simple boids simulation (texture-based neighbor lookup)
 // Uses O(n) texture lookup instead of complex spatial grid
 const SIMULATION_VS = `#version 300 es
 precision highp float;
@@ -578,7 +542,6 @@ export class OptimizedGPUBoids {
   }
   
   private initialize(): void {
-    const gl = this.gl;
     
     // Create simulation program with transform feedback
     this.simulationProgram = this.createProgramWithTF(
@@ -769,7 +732,6 @@ export class OptimizedGPUBoids {
   }
   
   private createTextures(): void {
-    const gl = this.gl;
     
     // Position and velocity textures (double-buffered)
     for (let i = 0; i < 2; i++) {
@@ -1277,70 +1239,114 @@ export class OptimizedGPUBoids {
     const numBoids = this.config.maxBoids;
     const trailLen = Math.max(2, Math.floor(this.params.trailLength));
     const boundary = this.getBoundaryFlags();
-    const margin = 2;
-    const maxSegment = Math.max(this.params.canvasWidth, this.params.canvasHeight) * 0.35;
+    
+    // Pre-compute thresholds
+    const canvasWidth = this.params.canvasWidth;
+    const canvasHeight = this.params.canvasHeight;
+    const maxSegment = Math.max(canvasWidth, canvasHeight) * 0.35;
+    const wrapThreshX = canvasWidth * 0.45;
+    const wrapThreshY = canvasHeight * 0.45;
+    const edgeMarginLow = 2;
+    const edgeMarginHighX = canvasWidth - 2;
+    const edgeMarginHighY = canvasHeight - 2;
+    const cap = this.trailCapacity;
+    const maxCount = Math.min(cap, trailLen);
+
+    // Unrolled for better cache locality
+    const trailX = this.trailX;
+    const trailY = this.trailY;
+    const trailHead = this.trailHead;
+    const trailCount = this.trailCount;
+    const positions = this.positions;
+    const prevPositions = this.prevPositions;
 
     for (let i = 0; i < numBoids; i++) {
       const idx = i * 2;
-      const oldX = this.prevPositions[idx];
-      const oldY = this.prevPositions[idx + 1];
-      const newX = this.positions[idx];
-      const newY = this.positions[idx + 1];
+      const oldX = prevPositions[idx];
+      const oldY = prevPositions[idx + 1];
+      const newX = positions[idx];
+      const newY = positions[idx + 1];
 
-      const dx = Math.abs(newX - oldX);
-      const dy = Math.abs(newY - oldY);
-      const hugeJump = dx > maxSegment || dy > maxSegment;
-      const crossedX =
-        boundary.glueX &&
-        (dx > this.params.canvasWidth * 0.45 ||
-          (oldX < margin && newX > this.params.canvasWidth - margin) ||
-          (oldX > this.params.canvasWidth - margin && newX < margin));
-      const crossedY =
-        boundary.glueY &&
-        (dy > this.params.canvasHeight * 0.45 ||
-          (oldY < margin && newY > this.params.canvasHeight - margin) ||
-          (oldY > this.params.canvasHeight - margin && newY < margin));
-      const wrapped = crossedX || crossedY || hugeJump;
-      const bounced =
-        (!boundary.glueX && (newX <= 0 || newX >= this.params.canvasWidth)) ||
-        (!boundary.glueY && (newY <= 0 || newY >= this.params.canvasHeight));
-
-      if (wrapped || bounced || hugeJump) {
-        const head = this.trailHead[i];
-        this.trailX[i * this.trailCapacity + head] = Number.NaN;
-        this.trailY[i * this.trailCapacity + head] = Number.NaN;
-        this.trailHead[i] = (head + 1) % this.trailCapacity;
-        this.trailCount[i] = Math.min(this.trailCount[i] + 1, this.trailCapacity);
-        continue;
+      const dx = newX - oldX;
+      const dy = newY - oldY;
+      const adx = dx < 0 ? -dx : dx;
+      const ady = dy < 0 ? -dy : dy;
+      
+      // Check for discontinuities (wrap/bounce/huge jump)
+      let needsBreak = adx > maxSegment || ady > maxSegment;
+      
+      if (!needsBreak && boundary.glueX) {
+        needsBreak = adx > wrapThreshX || 
+          (oldX < edgeMarginLow && newX > edgeMarginHighX) ||
+          (oldX > edgeMarginHighX && newX < edgeMarginLow);
+      }
+      
+      if (!needsBreak && boundary.glueY) {
+        needsBreak = ady > wrapThreshY ||
+          (oldY < edgeMarginLow && newY > edgeMarginHighY) ||
+          (oldY > edgeMarginHighY && newY < edgeMarginLow);
+      }
+      
+      if (!needsBreak && !boundary.glueX) {
+        needsBreak = newX <= 0 || newX >= canvasWidth;
+      }
+      
+      if (!needsBreak && !boundary.glueY) {
+        needsBreak = newY <= 0 || newY >= canvasHeight;
       }
 
-      // Append previous position (matches CPU tail behavior)
-      const head = this.trailHead[i];
-      this.trailX[i * this.trailCapacity + head] = oldX;
-      this.trailY[i * this.trailCapacity + head] = oldY;
-      this.trailHead[i] = (head + 1) % this.trailCapacity;
-      this.trailCount[i] = Math.min(this.trailCount[i] + 1, Math.min(this.trailCapacity, trailLen));
+      const base = i * cap;
+      const head = trailHead[i];
+      const slot = base + head;
+      
+      if (needsBreak) {
+        trailX[slot] = Number.NaN;
+        trailY[slot] = Number.NaN;
+      } else {
+        trailX[slot] = oldX;
+        trailY[slot] = oldY;
+      }
+      
+      trailHead[i] = (head + 1) % cap;
+      const newCount = trailCount[i] + 1;
+      trailCount[i] = newCount > maxCount ? maxCount : newCount;
     }
 
-    this.prevPositions.set(this.positions);
+    // Bulk copy is faster than individual updates
+    prevPositions.set(positions);
   }
 
   private buildTrailGeometry(): number {
     const numBoids = this.config.maxBoids;
     const effectiveLen = Math.min(this.trailCapacity, Math.max(2, Math.floor(this.params.trailLength)));
-    const step = Math.max(1, Math.floor(effectiveLen / 60));
+    
+    // Performance optimization: dynamic step based on boid count
+    // More boids = fewer trail segments per boid to maintain framerate
+    const maxSegmentsPerBoid = numBoids > 5000 ? 6 : numBoids > 2000 ? 10 : numBoids > 1000 ? 15 : 20;
+    const step = Math.max(1, Math.floor(effectiveLen / maxSegmentsPerBoid));
+    
+    // Hard cap on total trail segments to prevent slowdown
+    const maxTotalSegments = Math.min(50000, numBoids * (maxSegmentsPerBoid + 1));
+    
     const alphaMax = 0.35;
-    const minWidth = 0.6;
-    const maxWidth = Math.max(1, this.params.boidSize * 6);
+    // Thinner tail, thicker head for better visual effect
+    const minWidth = 0.3;
+    const maxWidth = Math.max(2, this.params.boidSize * 10);
+    
+    // Pre-compute boundary checks
+    const halfWidth = this.params.canvasWidth * 0.5;
+    const halfHeight = this.params.canvasHeight * 0.5;
+    const maxSegmentLen = Math.max(this.params.canvasWidth, this.params.canvasHeight) * 0.35;
 
     let segCount = 0;
 
-    for (let i = 0; i < numBoids; i++) {
+    for (let i = 0; i < numBoids && segCount < maxTotalSegments; i++) {
       const count = Math.min(this.trailCount[i], effectiveLen);
       if (count < 2) continue;
 
       const base = i * this.trailCapacity;
-      const start = (this.trailHead[i] - count + this.trailCapacity) % this.trailCapacity;
+      const headIdx = this.trailHead[i];
+      const start = (headIdx - count + this.trailCapacity) % this.trailCapacity;
 
       const ci = i * 4;
       const r = this.colors[ci];
@@ -1349,143 +1355,130 @@ export class OptimizedGPUBoids {
 
       let lastX = Number.NaN;
       let lastY = Number.NaN;
+      let prevValid = false;
 
-      for (let j = 0; j < count - 1; j += step) {
+      // Process trail segments with step
+      for (let j = 0; j < count - 1 && segCount < maxTotalSegments; j += step) {
         const i0 = (start + j) % this.trailCapacity;
-        const i1 = (start + Math.min(j + step, count - 1)) % this.trailCapacity;
+        const nextJ = Math.min(j + step, count - 1);
+        const i1 = (start + nextJ) % this.trailCapacity;
 
         const x0 = this.trailX[base + i0];
         const y0 = this.trailY[base + i0];
         const x1 = this.trailX[base + i1];
         const y1 = this.trailY[base + i1];
 
-        if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) {
+        // Quick NaN check using bitwise (faster than isFinite for hot path)
+        if (x0 !== x0 || y0 !== y0 || x1 !== x1 || y1 !== y1) {
+          prevValid = false;
           continue;
-        }
-
-        // If we subsample (step > 1), make sure we didn't skip over a trail break.
-        if (step > 1) {
-          let hasBreak = false;
-          const end = Math.min(j + step, count - 1);
-          for (let k = j; k <= end; k++) {
-            const ik = (start + k) % this.trailCapacity;
-            const tx = this.trailX[base + ik];
-            const ty = this.trailY[base + ik];
-            if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
-              hasBreak = true;
-              break;
-            }
-          }
-          if (hasBreak) continue;
         }
 
         const dx = x1 - x0;
         const dy = y1 - y0;
-        // Skip segments that cross wrap boundaries (prevents long vertical/horizontal lines)
-        if (Math.abs(dx) > this.params.canvasWidth / 2 || Math.abs(dy) > this.params.canvasHeight / 2) {
+        
+        // Skip boundary-crossing segments
+        if (Math.abs(dx) > halfWidth || Math.abs(dy) > halfHeight) {
+          prevValid = false;
           continue;
         }
-        // Extra guard: skip segments that connect opposite borders directly
-        const edgePad = 2;
-        if (
-          (x0 < edgePad && x1 > this.params.canvasWidth - edgePad) ||
-          (x1 < edgePad && x0 > this.params.canvasWidth - edgePad) ||
-          (y0 < edgePad && y1 > this.params.canvasHeight - edgePad) ||
-          (y1 < edgePad && y0 > this.params.canvasHeight - edgePad)
-        ) {
+        
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq < 0.0001 || lenSq > maxSegmentLen * maxSegmentLen) {
+          prevValid = false;
           continue;
         }
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 0.0001) continue;
-        // Skip very long segments (likely wrap/bounce artifacts)
-        const maxSegment = Math.max(this.params.canvasWidth, this.params.canvasHeight) * 0.35;
-        if (len > maxSegment) continue;
 
-        const t = (j + 1) / (count - 1);
+        const len = Math.sqrt(lenSq);
+        const t = (nextJ + 1) / count;
         const width = minWidth + (maxWidth - minWidth) * t;
         const half = width * 0.5;
 
         const nx = -dy / len;
         const ny = dx / len;
 
-        const x0l = x0 + nx * half;
-        const y0l = y0 + ny * half;
-        const x0r = x0 - nx * half;
-        const y0r = y0 - ny * half;
-        const x1l = x1 + nx * half;
-        const y1l = y1 + ny * half;
-        const x1r = x1 - nx * half;
-        const y1r = y1 - ny * half;
-
         const vBase = segCount * 12;
         const cBase = segCount * 24;
-        if (vBase + 12 > this.trailVertices.length || cBase + 24 > this.trailColors.length) {
-          return segCount;
-        }
 
-        // Two triangles (v0,v1,v2) and (v2,v1,v3)
-        this.trailVertices.set([x0l, y0l, x0r, y0r, x1l, y1l, x1l, y1l, x0r, y0r, x1r, y1r], vBase);
+        // Two triangles forming a quad
+        this.trailVertices[vBase] = x0 + nx * half;
+        this.trailVertices[vBase + 1] = y0 + ny * half;
+        this.trailVertices[vBase + 2] = x0 - nx * half;
+        this.trailVertices[vBase + 3] = y0 - ny * half;
+        this.trailVertices[vBase + 4] = x1 + nx * half;
+        this.trailVertices[vBase + 5] = y1 + ny * half;
+        this.trailVertices[vBase + 6] = x1 + nx * half;
+        this.trailVertices[vBase + 7] = y1 + ny * half;
+        this.trailVertices[vBase + 8] = x0 - nx * half;
+        this.trailVertices[vBase + 9] = y0 - ny * half;
+        this.trailVertices[vBase + 10] = x1 - nx * half;
+        this.trailVertices[vBase + 11] = y1 - ny * half;
 
         const alpha = alphaMax * t * t;
         const pr = r * alpha;
         const pg = g * alpha;
         const pb = b * alpha;
-        this.trailColors.set([
-          pr, pg, pb, alpha,
-          pr, pg, pb, alpha,
-          pr, pg, pb, alpha,
-          pr, pg, pb, alpha,
-          pr, pg, pb, alpha,
-          pr, pg, pb, alpha
-        ], cBase);
+        
+        for (let v = 0; v < 6; v++) {
+          const off = cBase + v * 4;
+          this.trailColors[off] = pr;
+          this.trailColors[off + 1] = pg;
+          this.trailColors[off + 2] = pb;
+          this.trailColors[off + 3] = alpha;
+        }
 
         segCount++;
         lastX = x1;
         lastY = y1;
+        prevValid = true;
       }
 
       // Connect the last trail point to the current boid position
-      if (Number.isFinite(lastX) && Number.isFinite(lastY)) {
+      if (prevValid && segCount < maxTotalSegments) {
         const curX = this.positions[i * 2];
         const curY = this.positions[i * 2 + 1];
         const dxh = curX - lastX;
         const dyh = curY - lastY;
-        if (Math.abs(dxh) <= this.params.canvasWidth / 2 && Math.abs(dyh) <= this.params.canvasHeight / 2) {
-          const lenh = Math.sqrt(dxh * dxh + dyh * dyh);
-          if (lenh > 0.0001) {
-            const t = 1.0;
-            const width = minWidth + (maxWidth - minWidth) * t;
+        
+        if (Math.abs(dxh) <= halfWidth && Math.abs(dyh) <= halfHeight) {
+          const lenhSq = dxh * dxh + dyh * dyh;
+          if (lenhSq > 0.0001 && lenhSq < maxSegmentLen * maxSegmentLen) {
+            const lenh = Math.sqrt(lenhSq);
+            const width = maxWidth; // Full width at head
             const half = width * 0.5;
             const nx = -dyh / lenh;
             const ny = dxh / lenh;
 
-            const x0l = lastX + nx * half;
-            const y0l = lastY + ny * half;
-            const x0r = lastX - nx * half;
-            const y0r = lastY - ny * half;
-            const x1l = curX + nx * half;
-            const y1l = curY + ny * half;
-            const x1r = curX - nx * half;
-            const y1r = curY - ny * half;
-
             const vBase = segCount * 12;
             const cBase = segCount * 24;
-            if (vBase + 12 <= this.trailVertices.length && cBase + 24 <= this.trailColors.length) {
-              this.trailVertices.set([x0l, y0l, x0r, y0r, x1l, y1l, x1l, y1l, x0r, y0r, x1r, y1r], vBase);
-              const alpha = t * alphaMax;
-              const pr = r * alpha;
-              const pg = g * alpha;
-              const pb = b * alpha;
-              this.trailColors.set([
-                pr, pg, pb, alpha,
-                pr, pg, pb, alpha,
-                pr, pg, pb, alpha,
-                pr, pg, pb, alpha,
-                pr, pg, pb, alpha,
-                pr, pg, pb, alpha
-              ], cBase);
-              segCount++;
+
+            this.trailVertices[vBase] = lastX + nx * half;
+            this.trailVertices[vBase + 1] = lastY + ny * half;
+            this.trailVertices[vBase + 2] = lastX - nx * half;
+            this.trailVertices[vBase + 3] = lastY - ny * half;
+            this.trailVertices[vBase + 4] = curX + nx * half;
+            this.trailVertices[vBase + 5] = curY + ny * half;
+            this.trailVertices[vBase + 6] = curX + nx * half;
+            this.trailVertices[vBase + 7] = curY + ny * half;
+            this.trailVertices[vBase + 8] = lastX - nx * half;
+            this.trailVertices[vBase + 9] = lastY - ny * half;
+            this.trailVertices[vBase + 10] = curX - nx * half;
+            this.trailVertices[vBase + 11] = curY - ny * half;
+
+            const alpha = alphaMax;
+            const pr = r * alpha;
+            const pg = g * alpha;
+            const pb = b * alpha;
+            
+            for (let v = 0; v < 6; v++) {
+              const off = cBase + v * 4;
+              this.trailColors[off] = pr;
+              this.trailColors[off + 1] = pg;
+              this.trailColors[off + 2] = pb;
+              this.trailColors[off + 3] = alpha;
             }
+
+            segCount++;
           }
         }
       }
@@ -1504,7 +1497,7 @@ export class OptimizedGPUBoids {
   }
 
   private computeNeighborCount(boidIndex: number, perceptionSq: number, maxNeighbors: number): number {
-    const { gridWidth, gridHeight, gridCellSize } = this.config;
+    const { gridWidth, gridHeight } = this.config;
     const cellIdx = this.boidCells[boidIndex];
     const cellX = cellIdx % gridWidth;
     const cellY = Math.floor(cellIdx / gridWidth);

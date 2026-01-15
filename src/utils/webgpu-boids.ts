@@ -11,6 +11,43 @@
  * - Shared memory for workgroup-local caching
  */
 
+// WebGPU type declarations (not yet in standard lib.dom.d.ts)
+/* eslint-disable @typescript-eslint/no-explicit-any */
+declare global {
+  interface Navigator {
+    gpu?: GPU;
+  }
+  interface GPU {
+    requestAdapter(options?: GPURequestAdapterOptions): Promise<GPUAdapter | null>;
+    getPreferredCanvasFormat(): GPUTextureFormat;
+  }
+  interface GPURequestAdapterOptions {
+    powerPreference?: 'low-power' | 'high-performance';
+  }
+  type GPUTextureFormat = string;
+  type GPUAdapter = any;
+  type GPUDevice = any;
+  type GPUBuffer = any;
+  type GPUTexture = any;
+  type GPUBindGroup = any;
+  type GPUComputePipeline = any;
+  type GPURenderPipeline = any;
+  type GPUCanvasContext = any;
+  const GPUBufferUsage: {
+    MAP_READ: number;
+    MAP_WRITE: number;
+    COPY_SRC: number;
+    COPY_DST: number;
+    INDEX: number;
+    VERTEX: number;
+    UNIFORM: number;
+    STORAGE: number;
+    INDIRECT: number;
+    QUERY_RESOLVE: number;
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export interface WebGPUBoidsConfig {
   maxBoids: number;
   gridCellSize: number;

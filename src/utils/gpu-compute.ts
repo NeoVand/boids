@@ -8,7 +8,7 @@
  * Results are read back to update the BoidsState for the existing renderer.
  */
 
-import { Boid, BoidsState, BoidsParameters, handleEdges } from './boids';
+import { Boid, BoidsState } from './boids';
 
 // WebGL2 Transform Feedback Shader for boids simulation
 const COMPUTE_VERTEX_SHADER = `#version 300 es

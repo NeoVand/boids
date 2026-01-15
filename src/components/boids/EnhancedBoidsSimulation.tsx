@@ -1,14 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { BoidsCanvas } from './BoidsCanvas';
-import { OptimizedGPUCanvas, PerformanceStats } from './OptimizedGPUCanvas';
+import { OptimizedGPUCanvas, type PerformanceStats } from './OptimizedGPUCanvas';
 import { EnhancedBoidsControls } from '../controls/EnhancedBoidsControls';
 import { createBoid, createInitialState, updateBoidsInPlace, BoidsState, BoidsParameters } from '../../utils/boids';
-
-export interface PerformanceStats {
-  fps: number;
-  frameTime: number;
-  boidCount: number;
-}
 
 export const EnhancedBoidsSimulation = () => {
   // Use full screen dimensions for canvas

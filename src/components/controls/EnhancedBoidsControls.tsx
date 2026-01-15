@@ -247,7 +247,7 @@ export const EnhancedBoidsControls = ({
   onToggleCollapsed,
   onPopulationChange,
   onColorizationChange,
-  gpuEnabled = false,
+  gpuEnabled: _gpuEnabled = false,
 }: EnhancedBoidsControlsProps) => {
   const [boidsCount, setBoidsCount] = useState<number>(state.boids.length);
   
