@@ -60,6 +60,7 @@ export const OptimizedGPUCanvas = ({
   const [gpuMode, setGpuMode] = useState<'webgl2' | 'cpu'>('webgl2');
   const [isDragging, setIsDragging] = useState(false);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+  const [resetToken, setResetToken] = useState(0);
   
   // Performance tracking refs
   const fpsCounterRef = useRef(0);
@@ -279,13 +280,42 @@ export const OptimizedGPUCanvas = ({
         gpuBoidsRef.current = null;
       }
     };
-  }, [gpuConfig]);
+  }, [gpuConfig, resetToken]);
+
+  // Handle WebGL context loss / restore (common on mobile orientation changes)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      setGpuMode('cpu');
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+
+    const handleContextRestored = () => {
+      setGpuMode('webgl2');
+      setResetToken(prev => prev + 1);
+    };
+
+    canvas.addEventListener('webglcontextlost', handleContextLost, false);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored, false);
+    return () => {
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
+    };
+  }, []);
   
   // Update canvas dimensions
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
+    if (state.canvasWidth < 2 || state.canvasHeight < 2) return;
+
     if (canvas.width !== state.canvasWidth || canvas.height !== state.canvasHeight) {
       canvas.width = state.canvasWidth;
       canvas.height = state.canvasHeight;
@@ -400,8 +430,14 @@ export const OptimizedGPUCanvas = ({
         deltaTime: Math.min(deltaTime / 1000, 1/30)
       });
       
+      const canvas = canvasRef.current;
+      if (!canvas || canvas.width < 2 || canvas.height < 2) {
+        animationFrameRef.current = requestAnimationFrame(animate);
+        return;
+      }
+
       // Clear
-      gl.viewport(0, 0, state.canvasWidth, state.canvasHeight);
+      gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT);
       
       // Simulate
