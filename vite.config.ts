@@ -9,6 +9,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         assetFileNames: 'assets/[name]-[hash][extname]',
