@@ -1353,8 +1353,7 @@ export class OptimizedGPUBoids {
     const maxSegmentsPerBoid = numBoids > 5000 ? 6 : numBoids > 2000 ? 10 : numBoids > 1000 ? 15 : 20;
     const step = Math.max(1, Math.floor(effectiveLen / maxSegmentsPerBoid));
     
-    // Hard cap on total trail segments to prevent slowdown
-    const maxTotalSegments = Math.min(50000, numBoids * (maxSegmentsPerBoid + 1));
+    // Per-boid cap keeps trails for all boids while bounding cost
     
     const alphaMax = 0.35;
     // Thinner tail, thicker head for better visual effect
@@ -1368,7 +1367,7 @@ export class OptimizedGPUBoids {
 
     let segCount = 0;
 
-    for (let i = 0; i < numBoids && segCount < maxTotalSegments; i++) {
+    for (let i = 0; i < numBoids; i++) {
       const count = Math.min(this.trailCount[i], effectiveLen);
       if (count < 2) continue;
 
@@ -1386,7 +1385,7 @@ export class OptimizedGPUBoids {
       let prevValid = false;
 
       // Process trail segments with step
-      for (let j = 0; j < count - 1 && segCount < maxTotalSegments; j += step) {
+      for (let j = 0; j < count - 1; j += step) {
         const i0 = (start + j) % this.trailCapacity;
         const nextJ = Math.min(j + step, count - 1);
         const i1 = (start + nextJ) % this.trailCapacity;
@@ -1462,7 +1461,7 @@ export class OptimizedGPUBoids {
       }
 
       // Connect the last trail point to the current boid position
-      if (prevValid && segCount < maxTotalSegments) {
+      if (prevValid) {
         const curX = this.positions[i * 2];
         const curY = this.positions[i * 2 + 1];
         const dxh = curX - lastX;
