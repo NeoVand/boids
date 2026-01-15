@@ -33,12 +33,43 @@ const fragmentShaderSource = `
   
   varying vec2 vVelocity;
   varying vec4 vColor;
+
+  uniform int uShape; // 0 = circle, 1 = arrow (triangle)
   
   void main() {
-    vec2 coord = gl_PointCoord - vec2(0.5);
+    vec2 coord = (gl_PointCoord - vec2(0.5)) * 2.0; // [-1, 1]
+
+    if (uShape == 1) {
+      // Arrow/triangle oriented by velocity.
+      // Rotate coord so that +X is "forward".
+      vec2 vel = normalize(vVelocity + vec2(0.001)); // avoid NaN
+      float angle = atan(vel.y, vel.x);
+      float c = cos(-angle);
+      float s = sin(-angle);
+      mat2 rot = mat2(c, -s, s, c);
+      vec2 p = rot * coord;
+
+      // Triangle vertices in local space
+      vec2 a = vec2(1.0, 0.0);
+      vec2 b = vec2(-0.7, 0.55);
+      vec2 d = vec2(-0.7, -0.55);
+
+      // Edge function (signed area)
+      float e1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+      float e2 = (d.x - b.x) * (p.y - b.y) - (d.y - b.y) * (p.x - b.x);
+      float e3 = (a.x - d.x) * (p.y - d.y) - (a.y - d.y) * (p.x - d.x);
+
+      // Accept either winding
+      bool inside = (e1 >= 0.0 && e2 >= 0.0 && e3 >= 0.0) || (e1 <= 0.0 && e2 <= 0.0 && e3 <= 0.0);
+      if (!inside) discard;
+
+      gl_FragColor = vColor;
+      return;
+    }
+
+    // Circle (disk/dot)
     float dist = length(coord);
-    
-    if (dist > 0.5) discard;
+    if (dist > 1.0) discard;
     gl_FragColor = vColor;
   }
 `;
@@ -120,10 +151,12 @@ export const BoidsCanvas = ({
   onCursorPositionChange,
   onAttractionStateChange
 }: BoidsCanvasProps) => {
+  const stateRef = useRef(state);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<WebGLRenderingContext | null>(null);
   const programRef = useRef<WebGLProgram | null>(null);
   const trailProgramRef = useRef<WebGLProgram | null>(null);
+  const renderRafRef = useRef<number | null>(null);
   
   // WebGL buffer references to avoid recreation
   const positionBufferRef = useRef<WebGLBuffer | null>(null);
@@ -135,6 +168,9 @@ export const BoidsCanvas = ({
   const positionsArrayRef = useRef<Float32Array | null>(null);
   const velocitiesArrayRef = useRef<Float32Array | null>(null);
   const colorsArrayRef = useRef<Float32Array | null>(null);
+  const trailVerticesArrayRef = useRef<Float32Array | null>(null);
+  const trailColorsArrayRef = useRef<Float32Array | null>(null);
+  const smoothedRgbArrayRef = useRef<Float32Array | null>(null);
   
   // Set initial projection matrix with default dimensions
   useEffect(() => {
@@ -153,9 +189,13 @@ export const BoidsCanvas = ({
       colorsArrayRef.current = new Float32Array(boidCount * 4);
     }
   }, [state.canvasWidth, state.canvasHeight, state.boids.length]);
+
+  // Keep latest state in a ref so the render loop doesn't depend on React re-renders
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
   
-  const [useWebGL, setUseWebGL] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
+  const [useWebGL, setUseWebGL] = useState(true); // Use WebGL for better performance
   const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
   
   // Generate a color palette for boids based on the primary color
@@ -187,32 +227,28 @@ export const BoidsCanvas = ({
     return { x, y };
   }, []);
   
-  // Handle mouse/touch start (down)
-  const handlePointerDown = useCallback((e: MouseEvent | TouchEvent) => {
+  // Handle mouse/touch move (always active, no click required)
+  const handlePointerMove = useCallback((e: MouseEvent | TouchEvent) => {
     const position = getCanvasCoordinates(e);
     if (position) {
-      setIsDragging(true);
       setMousePos(position);
       onCursorPositionChange?.(position);
-      onAttractionStateChange?.(true);
     }
   }, [getCanvasCoordinates, onCursorPositionChange, onAttractionStateChange]);
-  
-  // Handle mouse/touch move
-  const handlePointerMove = useCallback((e: MouseEvent | TouchEvent) => {
-    // Only update position if currently attracting (button/touch is down)
-    if (state.isAttracting || isDragging) {
-      const position = getCanvasCoordinates(e);
-      if (position) {
-        setMousePos(position);
-        onCursorPositionChange?.(position);
-      }
-    }
-  }, [getCanvasCoordinates, onCursorPositionChange, state.isAttracting, isDragging]);
-  
-  // Handle mouse/touch end (up)
+
+  const handlePointerLeave = useCallback(() => {
+    setMousePos(null);
+    onCursorPositionChange?.(null);
+    onAttractionStateChange?.(false);
+  }, [onCursorPositionChange, onAttractionStateChange]);
+
+  const handlePointerDown = useCallback(() => {
+    // Boost attraction/repulsion on click
+    onAttractionStateChange?.(true);
+  }, [onAttractionStateChange]);
+
   const handlePointerUp = useCallback(() => {
-    setIsDragging(false);
+    // Remove boost on release (still tracking position if cursor is inside)
     onAttractionStateChange?.(false);
   }, [onAttractionStateChange]);
   
@@ -222,37 +258,52 @@ export const BoidsCanvas = ({
     if (!canvas) return;
     
     // Always prevent default for touch events to avoid scrolling
-    const preventDefaultTouchstart = (e: TouchEvent) => {
+    const preventDefaultTouchmove = (e: TouchEvent) => {
       e.preventDefault();
-      handlePointerDown(e);
+      handlePointerMove(e);
     };
     
     // Mouse events
     canvas.addEventListener('mousedown', handlePointerDown);
     window.addEventListener('mousemove', handlePointerMove);
     window.addEventListener('mouseup', handlePointerUp);
+    canvas.addEventListener('mouseleave', handlePointerLeave);
     
     // Touch events with passive: false to allow preventDefault
-    canvas.addEventListener('touchstart', preventDefaultTouchstart, { passive: false });
-    window.addEventListener('touchmove', handlePointerMove, { passive: false });
+    canvas.addEventListener('touchstart', handlePointerDown, { passive: true });
+    window.addEventListener('touchmove', preventDefaultTouchmove, { passive: false });
     window.addEventListener('touchend', handlePointerUp);
+    window.addEventListener('touchcancel', handlePointerLeave);
     
     return () => {
       // Clean up event listeners
       canvas.removeEventListener('mousedown', handlePointerDown);
       window.removeEventListener('mousemove', handlePointerMove);
       window.removeEventListener('mouseup', handlePointerUp);
+      canvas.removeEventListener('mouseleave', handlePointerLeave);
       
-      canvas.removeEventListener('touchstart', preventDefaultTouchstart);
-      window.removeEventListener('touchmove', handlePointerMove);
+      canvas.removeEventListener('touchstart', handlePointerDown);
+      window.removeEventListener('touchmove', preventDefaultTouchmove);
       window.removeEventListener('touchend', handlePointerUp);
+      window.removeEventListener('touchcancel', handlePointerLeave);
     };
-  }, [handlePointerDown, handlePointerMove, handlePointerUp]);
+  }, [handlePointerMove, handlePointerLeave, handlePointerDown, handlePointerUp]);
   
   // Initialize WebGL - only once
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    
+    // Only initialize WebGL if we want to use it
+    if (!useWebGL) {
+      // Clean up any existing WebGL context
+      if (glRef.current) {
+        glRef.current = null;
+        programRef.current = null;
+        trailProgramRef.current = null;
+      }
+      return;
+    }
     
     try {
       // Get WebGL context with optimized parameters
@@ -319,7 +370,7 @@ export const BoidsCanvas = ({
         // Ignore cleanup errors
       }
     };
-  }, []);
+  }, [useWebGL]);
   
   // Make sure canvas dimensions match state and prepare projection matrix
   useEffect(() => {
@@ -348,66 +399,129 @@ export const BoidsCanvas = ({
       velocitiesArrayRef.current = new Float32Array(boidCount * 2);
       colorsArrayRef.current = new Float32Array(boidCount * 4);
     }
-  }, [state.boids.length]);
+
+    if (!smoothedRgbArrayRef.current || smoothedRgbArrayRef.current.length < boidCount * 3) {
+      smoothedRgbArrayRef.current = new Float32Array(boidCount * 3);
+    }
+
+    // Tail buffers: cap by a segment budget to avoid huge allocations at high counts.
+    const requestedTailLen = Math.max(2, Math.floor(state.parameters.trailLength || 25));
+    const maxSegmentsBudget = 300_000;
+    const maxSegments = Math.min(
+      maxSegmentsBudget,
+      boidCount * Math.max(1, requestedTailLen - 1)
+    );
+    // We render tapered tails as quads (two triangles) per segment:
+    // 6 vertices per segment
+    const requiredTrailVertexFloats = maxSegments * 12; // 6 vertices * 2 coords
+    const requiredTrailColorFloats = maxSegments * 24;  // 6 vertices * 4 comps
+
+    if (!trailVerticesArrayRef.current || trailVerticesArrayRef.current.length < requiredTrailVertexFloats) {
+      trailVerticesArrayRef.current = new Float32Array(requiredTrailVertexFloats);
+    }
+    if (!trailColorsArrayRef.current || trailColorsArrayRef.current.length < requiredTrailColorFloats) {
+      trailColorsArrayRef.current = new Float32Array(requiredTrailColorFloats);
+    }
+  }, [state.boids.length, state.parameters.trailLength]);
   
-  // Render the boids using either WebGL or Canvas2D
+  // Render loop (avoids tying rendering to React state updates)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
-    // Make sure projection matrix is initialized
-    if (!projectionMatrixRef.current) {
-      const validWidth = state.canvasWidth > 0 ? state.canvasWidth : 100;
-      const validHeight = state.canvasHeight > 0 ? state.canvasHeight : 100;
-      projectionMatrixRef.current = createProjectionMatrix(validWidth, validHeight);
-    }
-    
-    if (useWebGL && glRef.current && programRef.current && trailProgramRef.current && 
-        positionBufferRef.current && velocityBufferRef.current && colorBufferRef.current && 
-        positionsArrayRef.current && velocitiesArrayRef.current && colorsArrayRef.current && 
-        projectionMatrixRef.current) {
-      try {
-        renderBoidsInstanced(
-          glRef.current,
-          programRef.current,
-          trailProgramRef.current,
-          state,
-          colorPalette,
-          {
-            positionBuffer: positionBufferRef.current,
-            velocityBuffer: velocityBufferRef.current,
-            colorBuffer: colorBufferRef.current,
-            positions: positionsArrayRef.current,
-            velocities: velocitiesArrayRef.current,
-            colors: colorsArrayRef.current,
-            projectionMatrix: projectionMatrixRef.current
-          }
-        );
-      } catch (e) {
-        console.error("WebGL rendering error:", e);
-        setUseWebGL(false); // Switch to Canvas2D renderer
-        renderBoidsCanvas2D(canvas, state, colorPalette);
+
+    const renderOnce = () => {
+      const s = stateRef.current;
+
+      // Make sure projection matrix is initialized
+      if (!projectionMatrixRef.current) {
+        const validWidth = s.canvasWidth > 0 ? s.canvasWidth : 100;
+        const validHeight = s.canvasHeight > 0 ? s.canvasHeight : 100;
+        projectionMatrixRef.current = createProjectionMatrix(validWidth, validHeight);
       }
+
+      if (
+        useWebGL &&
+        glRef.current &&
+        programRef.current &&
+        trailProgramRef.current &&
+        positionBufferRef.current &&
+        velocityBufferRef.current &&
+        colorBufferRef.current &&
+        positionsArrayRef.current &&
+        velocitiesArrayRef.current &&
+        colorsArrayRef.current &&
+        trailVerticesArrayRef.current &&
+        trailColorsArrayRef.current &&
+        smoothedRgbArrayRef.current &&
+        projectionMatrixRef.current
+      ) {
+        try {
+          renderBoidsInstanced(
+            glRef.current,
+            programRef.current,
+            trailProgramRef.current,
+            s,
+            colorPalette,
+            {
+              positionBuffer: positionBufferRef.current,
+              velocityBuffer: velocityBufferRef.current,
+              colorBuffer: colorBufferRef.current,
+              positions: positionsArrayRef.current,
+              velocities: velocitiesArrayRef.current,
+              colors: colorsArrayRef.current,
+              trailVertices: trailVerticesArrayRef.current,
+              trailColors: trailColorsArrayRef.current,
+              smoothedRgb: smoothedRgbArrayRef.current,
+              projectionMatrix: projectionMatrixRef.current,
+            }
+          );
+        } catch (e) {
+          console.error('WebGL rendering error:', e);
+          setUseWebGL(false);
+          renderBoidsCanvas2D(canvas, s, colorPalette);
+        }
+      } else {
+        renderBoidsCanvas2D(canvas, s, colorPalette);
+      }
+
+      // Draw attraction target if needed (2D overlay)
+      if (mousePos && s.isAttracting) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(mousePos.x, mousePos.y, 8, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    };
+
+    const loop = () => {
+      renderOnce();
+      if (stateRef.current.isRunning) {
+        renderRafRef.current = requestAnimationFrame(loop);
+      } else {
+        renderRafRef.current = null;
+      }
+    };
+
+    // Start loop only when running (otherwise render once for a stable paused frame)
+    if (stateRef.current.isRunning) {
+      renderRafRef.current = requestAnimationFrame(loop);
     } else {
-      renderBoidsCanvas2D(canvas, state, colorPalette);
+      renderOnce();
     }
-    
-    // Draw attraction target if needed
-    if (mousePos && state.isAttracting) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.save();
-        
-        ctx.beginPath();
-        ctx.arc(mousePos.x, mousePos.y, 8, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        
-        ctx.restore();
+
+    return () => {
+      if (renderRafRef.current !== null) {
+        cancelAnimationFrame(renderRafRef.current);
+        renderRafRef.current = null;
       }
-    }
-  }, [state, colorPalette, useWebGL, mousePos]);
+    };
+  }, [colorPalette, useWebGL, mousePos]);
   
   return (
     <canvas
@@ -491,6 +605,9 @@ interface WebGLBuffers {
   positions: Float32Array;
   velocities: Float32Array;
   colors: Float32Array;
+  trailVertices: Float32Array;
+  trailColors: Float32Array;
+  smoothedRgb: Float32Array;
   projectionMatrix: Float32Array;
 }
 
@@ -531,12 +648,18 @@ const renderBoidsInstanced = (
   const positions = buffers.positions;
   const velocities = buffers.velocities;
   const colors = buffers.colors;
+  const smoothedRgb = buffers.smoothedRgb;
+
+  const colorMode = colorizationMode || 'speed';
+  const shouldSmooth = true;
+  const smoothing = 0.18; // higher = faster response, lower = smoother
   
   // Fill arrays with boid data
   for (let i = 0; i < boids.length; i++) {
     const boid = boids[i];
     const idx = i * 2;
     const colorIdx = i * 4;
+    const smoothIdx = i * 3;
     
     // Position data
     positions[idx] = boid.position.x;
@@ -547,18 +670,46 @@ const renderBoidsInstanced = (
     velocities[idx + 1] = boid.velocity.y;
     
     // Color data based on selected color mode
-    const color = getBoidColor(boid, i, colorPalette, colorizationMode || 'default', state);
+    const color = getBoidColor(boid, i, colorPalette, colorMode, state);
     const colorValues = parseColor(color);
-    colors[colorIdx] = colorValues[0] / 255;
-    colors[colorIdx + 1] = colorValues[1] / 255;
-    colors[colorIdx + 2] = colorValues[2] / 255;
+
+    const tr = colorValues[0] / 255;
+    const tg = colorValues[1] / 255;
+    const tb = colorValues[2] / 255;
+
+    // Smooth dynamic color modes to avoid visible flicker from fast-changing inputs
+    if (shouldSmooth) {
+      const pr = smoothedRgb[smoothIdx];
+      const pg = smoothedRgb[smoothIdx + 1];
+      const pb = smoothedRgb[smoothIdx + 2];
+
+      const nr = pr + (tr - pr) * smoothing;
+      const ng = pg + (tg - pg) * smoothing;
+      const nb = pb + (tb - pb) * smoothing;
+
+      smoothedRgb[smoothIdx] = nr;
+      smoothedRgb[smoothIdx + 1] = ng;
+      smoothedRgb[smoothIdx + 2] = nb;
+
+      colors[colorIdx] = nr;
+      colors[colorIdx + 1] = ng;
+      colors[colorIdx + 2] = nb;
+    } else {
+      smoothedRgb[smoothIdx] = tr;
+      smoothedRgb[smoothIdx + 1] = tg;
+      smoothedRgb[smoothIdx + 2] = tb;
+
+      colors[colorIdx] = tr;
+      colors[colorIdx + 1] = tg;
+      colors[colorIdx + 2] = tb;
+    }
     colors[colorIdx + 3] = 0.9; // Alpha
   }
   
-  // Draw trails if needed
-  if (particleType === 'trail') {
+  // Draw tails (previous positions) in one batch for performance (always enabled)
+  if ((state.parameters.trailLength ?? 25) >= 2) {
     gl.useProgram(trailProgram);
-    
+
     const projectionMatrixLocation = gl.getUniformLocation(trailProgram, 'uProjectionMatrix');
     if (!projectionMatrixLocation) {
       console.warn('Could not find trail projection matrix uniform location');
@@ -570,84 +721,152 @@ const renderBoidsInstanced = (
         return;
       }
     }
-    
+
+    const maxSegmentsBudget = 300_000;
+    const requestedLen = Math.max(2, Math.floor(state.parameters.trailLength));
+    const maxLenForBudget = Math.max(2, Math.floor(maxSegmentsBudget / Math.max(1, boids.length)) + 1);
+    const effectiveLen = Math.min(requestedLen, maxLenForBudget);
+
+    const vertices = buffers.trailVertices;
+    const trailColors = buffers.trailColors;
+    let segCount = 0;
+
+    const alphaMax = 0.6;
+    const minWidth = 0.6;
+    // Match disk diameter (point sprite size) at the head of the tail.
+    const boidSize = state.parameters.boidSize ?? 1;
+    const diskDiameter = 10 * Math.max(0.1, boidSize);
+    const maxWidth = diskDiameter;
+
     for (let i = 0; i < boids.length; i++) {
       const boid = boids[i];
-      const { history } = boid;
-      
-      if (history.length < 2) continue;
-      
-      const colorValues = parseColor(getBoidColor(boid, i, colorPalette, colorizationMode || 'default', state));
-      
-      const vertices = new Float32Array(history.length * 2);
-      const trailColors = new Float32Array(history.length * 4);
-      
-      for (let j = 0; j < history.length; j++) {
-        const idx = j * 2;
-        const colorIdx = j * 4;
-        
-        vertices[idx] = history[j].x;
-        vertices[idx + 1] = history[j].y;
-        
-        // Calculate progress from tail to head (reverse it to make head brighter)
-        const progress = (history.length - j - 1) / history.length;
-        
-        // For trails with orientation or speed coloring, calculate the color for each segment
-        if (colorizationMode === 'orientation' || colorizationMode === 'speed') {
-          // Estimate velocity for this history point
-          let dx = 0, dy = 0;
-          
-          // For all points except the last one, estimate velocity from the next point
-          if (j < history.length - 1) {
-            dx = history[j + 1].x - history[j].x;
-            dy = history[j + 1].y - history[j].y;
-          } 
-          // For the last point (head), use the boid's current velocity
-          else {
-            dx = boid.velocity.x;
-            dy = boid.velocity.y;
-          }
-          
-          // Create temporary boid with this history point
-          const historyBoid = {
-            id: boid.id,
-            position: history[j],
-            velocity: { x: dx, y: dy }
-          };
-          
-          // Get the appropriate color based on this point's data
-          const segmentColorValues = parseColor(
-            getBoidColor(historyBoid, i, colorPalette, colorizationMode, state)
-          );
-          
-          trailColors[colorIdx] = segmentColorValues[0] / 255;
-          trailColors[colorIdx + 1] = segmentColorValues[1] / 255;
-          trailColors[colorIdx + 2] = segmentColorValues[2] / 255;
-          trailColors[colorIdx + 3] = progress * 0.7; // Alpha decreases for older points
-        } else {
-          // For other coloring modes, use the boid's color with fading opacity
-          trailColors[colorIdx] = colorValues[0] / 255;
-          trailColors[colorIdx + 1] = colorValues[1] / 255;
-          trailColors[colorIdx + 2] = colorValues[2] / 255;
-          trailColors[colorIdx + 3] = progress * 0.7; // Alpha decreases for older points
+      const count = Math.min(boid.tailCount || 0, effectiveLen);
+      if (count < 2 || boid.tailCapacity <= 0) continue;
+
+      const newestExclusive = boid.tailHead; // next write
+      const start = (newestExclusive - count + boid.tailCapacity) % boid.tailCapacity;
+
+      const baseColorIdx = i * 4;
+      const r = colors[baseColorIdx];
+      const g = colors[baseColorIdx + 1];
+      const b = colors[baseColorIdx + 2];
+
+      // Build segments between consecutive points: (p0->p1), (p1->p2), ...
+      for (let j = 0; j < count - 1; j++) {
+        if (segCount >= maxSegmentsBudget) break;
+
+        const i0 = (start + j) % boid.tailCapacity;
+        const i1 = (start + j + 1) % boid.tailCapacity;
+
+        const x0 = boid.tailX[i0];
+        const y0 = boid.tailY[i0];
+        const x1 = boid.tailX[i1];
+        const y1 = boid.tailY[i1];
+
+        // Break marker (inserted on wrap/bounce)
+        if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) {
+          continue;
         }
+
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 0.0001) continue;
+
+        const px = -dy / len;
+        const py = dx / len;
+
+        const t0 = j / (count - 1);
+        const t1 = (j + 1) / (count - 1);
+        const w0 = minWidth + (maxWidth - minWidth) * t0;
+        const w1 = minWidth + (maxWidth - minWidth) * t1;
+
+        const ox0 = px * (w0 * 0.5);
+        const oy0 = py * (w0 * 0.5);
+        const ox1 = px * (w1 * 0.5);
+        const oy1 = py * (w1 * 0.5);
+
+        // Quad points
+        const x0l = x0 - ox0;
+        const y0l = y0 - oy0;
+        const x0r = x0 + ox0;
+        const y0r = y0 + oy0;
+        const x1l = x1 - ox1;
+        const y1l = y1 - oy1;
+        const x1r = x1 + ox1;
+        const y1r = y1 + oy1;
+
+        const vOff = segCount * 12;
+        // Tri 1: p0L, p0R, p1L
+        vertices[vOff] = x0l;
+        vertices[vOff + 1] = y0l;
+        vertices[vOff + 2] = x0r;
+        vertices[vOff + 3] = y0r;
+        vertices[vOff + 4] = x1l;
+        vertices[vOff + 5] = y1l;
+        // Tri 2: p1L, p0R, p1R
+        vertices[vOff + 6] = x1l;
+        vertices[vOff + 7] = y1l;
+        vertices[vOff + 8] = x0r;
+        vertices[vOff + 9] = y0r;
+        vertices[vOff + 10] = x1r;
+        vertices[vOff + 11] = y1r;
+
+        const a0 = t0 * alphaMax;
+        const a1 = t1 * alphaMax;
+
+        const cOff = segCount * 24;
+        // 6 vertices colors: first two use a0, last four interpolate toward a1
+        // (simple: assign a0 for p0*, a1 for p1*)
+        // Tri 1
+        trailColors[cOff] = r;
+        trailColors[cOff + 1] = g;
+        trailColors[cOff + 2] = b;
+        trailColors[cOff + 3] = a0;
+        trailColors[cOff + 4] = r;
+        trailColors[cOff + 5] = g;
+        trailColors[cOff + 6] = b;
+        trailColors[cOff + 7] = a0;
+        trailColors[cOff + 8] = r;
+        trailColors[cOff + 9] = g;
+        trailColors[cOff + 10] = b;
+        trailColors[cOff + 11] = a1;
+        // Tri 2
+        trailColors[cOff + 12] = r;
+        trailColors[cOff + 13] = g;
+        trailColors[cOff + 14] = b;
+        trailColors[cOff + 15] = a1;
+        trailColors[cOff + 16] = r;
+        trailColors[cOff + 17] = g;
+        trailColors[cOff + 18] = b;
+        trailColors[cOff + 19] = a0;
+        trailColors[cOff + 20] = r;
+        trailColors[cOff + 21] = g;
+        trailColors[cOff + 22] = b;
+        trailColors[cOff + 23] = a1;
+
+        segCount++;
       }
-      
+
+      if (segCount >= maxSegmentsBudget) break;
+    }
+
+    if (segCount > 0) {
       gl.bindBuffer(gl.ARRAY_BUFFER, buffers.positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STREAM_DRAW);
-      
+      gl.bufferData(gl.ARRAY_BUFFER, vertices.subarray(0, segCount * 12), gl.STREAM_DRAW);
+
       const positionLocation = gl.getAttribLocation(trailProgram, 'aPosition');
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-      
+
       gl.bindBuffer(gl.ARRAY_BUFFER, buffers.colorBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, trailColors, gl.STREAM_DRAW);
-      
+      gl.bufferData(gl.ARRAY_BUFFER, trailColors.subarray(0, segCount * 24), gl.STREAM_DRAW);
+
       const colorLocation = gl.getAttribLocation(trailProgram, 'aColor');
       gl.enableVertexAttribArray(colorLocation);
       gl.vertexAttribPointer(colorLocation, 4, gl.FLOAT, false, 0, 0);
-      
-      gl.drawArrays(gl.LINE_STRIP, 0, history.length);
+
+      gl.drawArrays(gl.TRIANGLES, 0, segCount * 6);
     }
   }
 
@@ -699,7 +918,14 @@ const renderBoidsInstanced = (
   
   const pointSizeLocation = gl.getUniformLocation(program, 'uPointSize');
   if (pointSizeLocation) {
-    gl.uniform1f(pointSizeLocation, pointSize);
+    const size = state.parameters.boidSize ?? 1;
+    gl.uniform1f(pointSizeLocation, pointSize * Math.max(0.1, size));
+  }
+
+  // Shape uniform (0 circle, 1 arrow)
+  const shapeLocation = gl.getUniformLocation(program, 'uShape');
+  if (shapeLocation) {
+    gl.uniform1i(shapeLocation, particleType === 'arrow' ? 1 : 0);
   }
   
   gl.drawArrays(gl.POINTS, 0, boids.length);
@@ -715,75 +941,85 @@ const renderBoidsCanvas2D = (
   state: BoidsState,
   colorPalette: string[]
 ) => {
-  const { boids, canvasWidth, canvasHeight, particleType, colorizationMode } = state;
+  const { boids, canvasWidth, canvasHeight, colorizationMode } = state;
+  // console.log('Canvas2D rendering:', boids.length, 'boids');
+  
   const ctx = canvas.getContext('2d');
   
-  if (!ctx) return;
+  if (!ctx) {
+    console.error('Could not get 2D context - canvas may have been used for WebGL');
+    return;
+  }
   
   // Clear the canvas
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   
+  // Set a simple fill style for debugging
+  ctx.fillStyle = '#4169e1';
+  
+  // Draw a test circle to verify Canvas2D is working
+  // ctx.beginPath();
+  // ctx.arc(100, 100, 20, 0, Math.PI * 2);
+  // ctx.fill();
+  
   // Draw each boid
   for (let i = 0; i < boids.length; i++) {
     const boid = boids[i];
+    
+    // Debug: log first few boid positions
+    // if (i < 3) {
+    //   console.log(`Boid ${i} position:`, boid.position.x, boid.position.y);
+    // }
     const color = getBoidColor(boid, i, colorPalette, colorizationMode || 'default', state);
     
     ctx.save();
     
-    // Draw trails if enabled
-    if (particleType === 'trail' && boid.history.length > 1) {
-      // For trails, we want to draw line segments with gradient opacity
-      // Each segment can have its own color based on its velocity at that point
-      for (let j = 0; j < boid.history.length - 1; j++) {
-        const startPoint = boid.history[j];
-        const endPoint = boid.history[j + 1];
-        
-        // Calculate the progress from tail to head (newer points have higher opacity)
-        // Reverse the progress to make head brighter and tail faded
-        const progress = (boid.history.length - j - 1) / boid.history.length;
-        
-        // Get color for this history point if we're using orientation or speed colorization
-        let segmentColor = color;
-        if (colorizationMode === 'orientation' || colorizationMode === 'speed') {
-          // For history points, we don't have velocity stored
-          // So we can estimate it from the position difference
-          const dx = endPoint.x - startPoint.x;
-          const dy = endPoint.y - startPoint.y;
-          
-          // Create a temporary boid object with position and velocity
-          const historyBoid = {
-            id: boid.id,
-            position: startPoint,
-            velocity: { x: dx, y: dy }
-          };
-          
-          segmentColor = getBoidColor(historyBoid, i, colorPalette, colorizationMode, state);
+    // Draw tails (ring buffer) with taper (Canvas2D fallback)
+    if ((state.parameters.trailLength ?? 25) >= 2 && boid.tailCount > 1) {
+      const requestedLen = Math.max(2, Math.floor(state.parameters.trailLength));
+      const effectiveLen = Math.min(requestedLen, boid.tailCount);
+      const alphaMax = 0.6;
+
+      const minWidth = 0.6;
+      const boidSize = state.parameters.boidSize ?? 1;
+      const diskDiameter = 10 * Math.max(0.1, boidSize);
+      const maxWidth = diskDiameter;
+
+      const start = (boid.tailHead - effectiveLen + boid.tailCapacity) % boid.tailCapacity;
+      const rgbValues = parseColor(color);
+
+      for (let j = 0; j < effectiveLen - 1; j++) {
+        const i0 = (start + j) % boid.tailCapacity;
+        const i1 = (start + j + 1) % boid.tailCapacity;
+
+        const x0 = boid.tailX[i0];
+        const y0 = boid.tailY[i0];
+        const x1 = boid.tailX[i1];
+        const y1 = boid.tailY[i1];
+
+        if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) {
+          continue;
         }
-        
-        // Draw the line segment with transparency based on position in history
+
+        const t = (j + 1) / (effectiveLen - 1); // 0 tail -> 1 head
+        const width = minWidth + (maxWidth - minWidth) * t;
+
+        ctx.strokeStyle = `rgba(${rgbValues[0]}, ${rgbValues[1]}, ${rgbValues[2]}, ${t * alphaMax})`;
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+
         ctx.beginPath();
-        ctx.moveTo(startPoint.x, startPoint.y);
-        ctx.lineTo(endPoint.x, endPoint.y);
-        
-        // Convert color to rgba with proper opacity
-        // Parse the color (whether it's RGB or HSL) and convert to RGBA
-        const rgbValues = parseColor(segmentColor);
-        ctx.strokeStyle = `rgba(${rgbValues[0]}, ${rgbValues[1]}, ${rgbValues[2]}, ${progress * 0.8})`;
-        ctx.lineWidth = 2.5;
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
         ctx.stroke();
       }
     } else {
-      // Draw the boid
-      ctx.fillStyle = color;
+      // Draw the boid - simplified for debugging
+      ctx.fillStyle = '#4169e1';
       
-      // Position at the boid's current position
-      ctx.translate(boid.position.x, boid.position.y);
-      
-      // Draw a circle for disk and dot types
-      const radius = particleType === 'dot' ? 2 : 
-                    (particleType === 'trail' ? 3 : 5);
+      // Draw a simple circle at the boid's position
       ctx.beginPath();
-      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.arc(boid.position.x, boid.position.y, 5, 0, Math.PI * 2);
       ctx.fill();
     }
     
@@ -855,6 +1091,28 @@ const getBoidColor = (
       // Boost saturation and lightness for better visibility of the coloring
       return `hsl(${Math.round(hue)}, 90%, 60%)`;
     }
+    case 'acceleration': {
+      const ax = boid.acceleration?.x ?? 0;
+      const ay = boid.acceleration?.y ?? 0;
+      const accel = Math.sqrt(ax * ax + ay * ay);
+      const maxAccel = Math.max(0.001, state.parameters.maxForce * 4);
+      const t = Math.max(0, Math.min(1, accel / maxAccel));
+      const hue = 220 - t * 220; // blue -> red
+      return `hsl(${Math.round(hue)}, 85%, 60%)`;
+    }
+    case 'turning': {
+      const vx = boid.velocity.x;
+      const vy = boid.velocity.y;
+      const ax = boid.acceleration?.x ?? 0;
+      const ay = boid.acceleration?.y ?? 0;
+      const vMag = Math.sqrt(vx * vx + vy * vy);
+      const aMag = Math.sqrt(ax * ax + ay * ay);
+      const denom = Math.max(0.0001, vMag * aMag);
+      const turn = Math.abs(vx * ay - vy * ax) / denom; // 0..1-ish
+      const t = Math.max(0, Math.min(1, turn));
+      const hue = 160 - t * 160; // green -> red
+      return `hsl(${Math.round(hue)}, 80%, 58%)`;
+    }
     case 'orientation': {
       // Color based on direction angle of velocity vector
       const angle = Math.atan2(boid.velocity.y, boid.velocity.x);
@@ -869,65 +1127,10 @@ const getBoidColor = (
       // Create more vibrant colors with high saturation and balanced brightness
       return `hsl(${Math.round(degrees)}, 100%, 65%)`;
     }
-    case 'random': {
-      // Consistent random color based on boid ID
-      return `hsl(${(boid.id * 137.5) % 360}, 80%, 60%)`;
-    }
     case 'neighbors': {
-      // Count neighbors using a simulated perception radius check
-      const perceptionRadius = state.parameters.perceptionRadius;
-      const perceptionRadiusSq = perceptionRadius * perceptionRadius;
-      
-      // Count neighbors in radius
-      let neighborCount = 0;
-      
-      // Sample all boids for a more accurate count
-      // Use spatial optimization if available
-      if (state.spatialGrid) {
-        // Get neighboring cells for this boid
-        const gridCellSize = state.gridCellSize;
-        const cellX = Math.floor(boid.position.x / gridCellSize);
-        const cellY = Math.floor(boid.position.y / gridCellSize);
-        
-        // Check surrounding cells (9 cells total for current and adjacent)
-        for (let i = -1; i <= 1; i++) {
-          for (let j = -1; j <= 1; j++) {
-            const cellKey = `${cellX + i},${cellY + j}`;
-            const cellBoids = state.spatialGrid.get(cellKey);
-            
-            if (cellBoids) {
-              // Count boids in this cell that are within perception radius
-              for (const otherIdx of cellBoids) {
-                const otherBoid = state.boids[otherIdx];
-                if (otherBoid.id !== boid.id) {
-                  const dx = boid.position.x - otherBoid.position.x;
-                  const dy = boid.position.y - otherBoid.position.y;
-                  const distSq = dx * dx + dy * dy;
-                  
-                  if (distSq < perceptionRadiusSq) {
-                    neighborCount++;
-                  }
-                }
-              }
-            }
-          }
-        }
-      } else {
-        // Fallback to checking a limited number of boids
-        const maxCheck = Math.min(state.boids.length, 100);
-        for (let i = 0; i < maxCheck; i++) {
-          const otherBoid = state.boids[i];
-          if (otherBoid.id !== boid.id) {
-            const dx = boid.position.x - otherBoid.position.x;
-            const dy = boid.position.y - otherBoid.position.y;
-            const distSq = dx * dx + dy * dy;
-            
-            if (distSq < perceptionRadiusSq) {
-              neighborCount++;
-            }
-          }
-        }
-      }
+      // Use cached neighbor count computed during the simulation step.
+      // This avoids doing an O(k) neighbor scan again during rendering.
+      const neighborCount = typeof boid.neighborCount === 'number' ? boid.neighborCount : 0;
       
       // Adjust thresholds based on observed neighbor counts
       // Use a higher max to get a broader distribution
@@ -956,7 +1159,6 @@ const getBoidColor = (
       return `hsl(${Math.round(hue)}, 90%, 60%)`;
     }
     default:
-      // Default color from palette
       return colorPalette[index % colorPalette.length];
   }
 };

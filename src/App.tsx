@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import { ThemeProvider, CssBaseline, createTheme } from '@mui/material';
-import { BoidsSimulation } from './components/boids/BoidsSimulation';
+import { EnhancedBoidsSimulation } from './components/boids/EnhancedBoidsSimulation';
 
 // Create a custom dark theme
 const theme = createTheme({
@@ -103,8 +103,8 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <div className="App">
-        {/* Use the optimized BoidsSimulation component directly */}
-        <BoidsSimulation />
+        {/* Use the enhanced GPU-accelerated BoidsSimulation component */}
+        <EnhancedBoidsSimulation />
       </div>
     </ThemeProvider>
   );

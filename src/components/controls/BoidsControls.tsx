@@ -18,13 +18,12 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SettingsIcon from '@mui/icons-material/Settings';
 import InfoIcon from '@mui/icons-material/Info';
-import { BoidsParameters, BoidsState, ParticleType } from '../../utils/boids';
+import { BoidsParameters, BoidsState } from '../../utils/boids';
 import React from 'react';
 
 interface BoidsControlsProps {
   state: BoidsState;
   onParameterChange: (params: Partial<BoidsParameters>) => void;
-  onParticleTypeChange: (type: ParticleType) => void;
   onToggleRunning: () => void;
   onReset: (count?: number) => void;
   isCollapsed?: boolean;
@@ -89,7 +88,6 @@ const CompactSlider = ({
 export const BoidsControls = ({
   state,
   onParameterChange,
-  onParticleTypeChange,
   onToggleRunning,
   onReset,
   isCollapsed = false,
@@ -109,10 +107,6 @@ export const BoidsControls = ({
     value: number | number[]
   ) => {
     onParameterChange({ [name]: value as number });
-  };
-
-  const handleParticleTypeChange = (event: React.ChangeEvent<{ value: unknown }>) => {
-    onParticleTypeChange(event.target.value as ParticleType);
   };
 
   const handleReset = () => {
@@ -163,7 +157,7 @@ export const BoidsControls = ({
         <Card 
           elevation={3}
           sx={{
-            width: 240,
+            width: 220,
             backgroundColor: 'rgba(0, 0, 0, 0.2)',
             backdropFilter: 'blur(10px)',
             color: 'black',
@@ -171,7 +165,10 @@ export const BoidsControls = ({
             overflow: 'hidden',
             transition: 'all 0.3s ease-in-out',
             border: '1px solid',
-            borderColor: 'rgba(100, 100, 150, 0.15)'
+            borderColor: 'rgba(100, 100, 150, 0.15)',
+            maxHeight: 'calc(100vh - 20px)',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           {/* Header bar with collapse toggle */}
@@ -213,36 +210,21 @@ export const BoidsControls = ({
           </Box>
 
           {/* All controls */}
-          <Box sx={{ p: 1.5 }}>
-            {/* Type and Edge selectors */}
+          <Box
+            sx={{
+              p: 1,
+              overflowY: 'auto',
+              scrollbarWidth: 'thin',
+              '&::-webkit-scrollbar': { width: 6 },
+              '&::-webkit-scrollbar-track': { background: 'transparent' },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: 'rgba(65, 105, 225, 0.6)',
+                borderRadius: '999px',
+              },
+            }}
+          >
+            {/* Edge behavior selector */}
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-              {/* Type selector */}
-              <FormControl size="small" fullWidth variant="outlined" sx={{ 
-                '.MuiOutlinedInput-notchedOutline': { 
-                  borderColor: 'rgba(100, 100, 150, 0.3)' 
-                }
-              }}>
-                <InputLabel id="type-select-label" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>Type</InputLabel>
-                <Select
-                  labelId="type-select-label"
-                  value={state.particleType}
-                  onChange={handleParticleTypeChange as any}
-                  label="Type"
-                  sx={{ 
-                    color: 'white', 
-                    fontSize: '0.75rem',
-                    '.MuiSelect-select': { 
-                      py: 0.75 
-                    }
-                  }}
-                >
-                  <MenuItem value="disk">Disk</MenuItem>
-                  <MenuItem value="dot">Dot</MenuItem>
-                  <MenuItem value="trail">Trail</MenuItem>
-                </Select>
-              </FormControl>
-              
-              {/* Edge behavior selector */}
               <FormControl size="small" fullWidth variant="outlined" sx={{ 
                 '.MuiOutlinedInput-notchedOutline': { 
                   borderColor: 'rgba(100, 100, 150, 0.3)' 
@@ -278,7 +260,7 @@ export const BoidsControls = ({
               <InputLabel id="color-select-label" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>Colorize</InputLabel>
               <Select
                 labelId="color-select-label"
-                value={state.colorizationMode || 'default'}
+                value={state.colorizationMode || 'speed'}
                 onChange={handleColorizationChange as any}
                 label="Colorize"
                 sx={{ 
@@ -289,15 +271,25 @@ export const BoidsControls = ({
                   }
                 }}
               >
-                <MenuItem value="default">Default</MenuItem>
                 <MenuItem value="speed">Speed</MenuItem>
                 <MenuItem value="orientation">Orientation</MenuItem>
-                <MenuItem value="random">Random</MenuItem>
                 <MenuItem value="neighbors">Neighbors</MenuItem>
+                <MenuItem value="acceleration">Acceleration</MenuItem>
+                <MenuItem value="turning">Turning</MenuItem>
               </Select>
             </FormControl>
 
             {/* Behavior Sliders */}
+            <CompactSlider
+              label="Size"
+              value={state.parameters.boidSize ?? 0.5}
+              min={0.1}
+              max={1}
+              step={0.05}
+              onChange={handleSliderChange('boidSize')}
+              tooltip="Visual size multiplier for boids"
+            />
+
             <CompactSlider
               label="Alignment"
               value={state.parameters.alignmentForce}
@@ -352,23 +344,21 @@ export const BoidsControls = ({
               label="Attraction"
               value={state.parameters.attractionForce}
               min={0}
-              max={5}
-              step={0.5}
+              max={1}
+              step={0.05}
               onChange={handleSliderChange('attractionForce')}
               tooltip="Strength of attraction to cursor"
             />
             
-            {state.particleType === 'trail' && (
-              <CompactSlider
-                label="Trail Length"
-                value={state.parameters.trailLength}
-                min={2}
-                max={30}
-                step={1}
-                onChange={handleSliderChange('trailLength')}
-                tooltip="Length of history trail"
-              />
-            )}
+            <CompactSlider
+              label="Tail Length"
+              value={state.parameters.trailLength}
+              min={5}
+              max={300}
+              step={1}
+              onChange={handleSliderChange('trailLength')}
+              tooltip="How many previous positions are kept per boid (min 5; tails always on)"
+            />
             
             <CompactSlider
               label="Population"
