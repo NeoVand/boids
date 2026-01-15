@@ -5,9 +5,10 @@ import { EnhancedBoidsControls } from '../controls/EnhancedBoidsControls';
 import { createBoid, createInitialState, updateBoidsInPlace, BoidsState, BoidsParameters, DEFAULT_PARAMETERS } from '../../utils/boids';
 
 export const EnhancedBoidsSimulation = () => {
-  // Use full screen dimensions for canvas
-  const canvasWidth = window.innerWidth;
-  const canvasHeight = window.innerHeight;
+  const getViewportSize = () => ({
+    width: window.visualViewport?.width ?? window.innerWidth,
+    height: window.visualViewport?.height ?? window.innerHeight,
+  });
   
   // GPU mode - uses OptimizedGPUCanvas for both simulation AND rendering on GPU
   const [useGPU, setUseGPU] = useState(true);
@@ -24,9 +25,10 @@ export const EnhancedBoidsSimulation = () => {
   
   // Use a single state object for both parameters and state
   const [state, setState] = useState<BoidsState>(() => {
+    const viewport = getViewportSize();
     // Create initial state with reasonable number of boids
     const initialBoidCount = 10000;
-    const initialState = createInitialState(initialBoidCount, canvasWidth, canvasHeight);
+    const initialState = createInitialState(initialBoidCount, viewport.width, viewport.height);
     
     // Keep defaults from DEFAULT_PARAMETERS for consistent initial UX
     initialState.gridCellSize = initialState.parameters.perceptionRadius;
@@ -188,15 +190,23 @@ export const EnhancedBoidsSimulation = () => {
   // Update canvas dimensions on window resize
   useEffect(() => {
     const handleResize = () => {
+      const viewport = getViewportSize();
       setState(prev => ({
         ...prev,
-        canvasWidth: window.innerWidth,
-        canvasHeight: window.innerHeight
+        canvasWidth: viewport.width,
+        canvasHeight: viewport.height
       }));
     };
     
+    handleResize();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('scroll', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('scroll', handleResize);
+    };
   }, []);
 
   // CPU animation loop (only when GPU is disabled)
@@ -303,8 +313,8 @@ export const EnhancedBoidsSimulation = () => {
       left: 0, 
       right: 0, 
       bottom: 0, 
-      width: '100vw', 
-      height: '100vh' 
+      width: '100dvw', 
+      height: '100dvh' 
     }}>
       {/* GPU mode: OptimizedGPUCanvas does both simulation AND rendering on GPU
           CPU mode: BoidsCanvas with full visual features (trails, etc.) */}

@@ -323,7 +323,9 @@ export const EnhancedBoidsControls = ({
             transition: 'transform 0.2s ease, opacity 0.2s ease',
             border: `1px solid ${panelBorder}`,
             boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
-            maxHeight: 'calc(100vh - 20px)',
+            height: 'calc(100dvh - 20px)',
+            maxHeight: 'calc(100dvh - 20px)',
+            minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
           }}
@@ -371,7 +373,11 @@ export const EnhancedBoidsControls = ({
           <Box
             sx={{
               p: 1,
+              flex: 1,
+              minHeight: 0,
               overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              overscrollBehavior: 'contain',
               scrollbarWidth: 'thin',
               '&::-webkit-scrollbar': { width: 6 },
               '&::-webkit-scrollbar-track': { background: 'transparent' },
