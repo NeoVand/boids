@@ -5,6 +5,10 @@ import {
   IconButton,
   Typography,
   Slider,
+  Select as MuiSelect,
+  MenuItem as MuiMenuItem,
+  FormControl as MuiFormControl,
+  InputLabel as MuiInputLabel,
   Button,
   Tooltip,
   Divider,
@@ -24,6 +28,7 @@ import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import BoltIcon from '@mui/icons-material/Bolt';
+import GrainIcon from '@mui/icons-material/Grain';
 import AdsClickIcon from '@mui/icons-material/AdsClick';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import GroupsIcon from '@mui/icons-material/Groups';
@@ -74,9 +79,9 @@ const CompactSlider = ({
   icon?: React.ReactNode;
 }) => {
   return (
-    <Box sx={{ mb: 1 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.25 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+    <Box sx={{ display: 'grid', gridTemplateRows: 'auto auto', gap: 0.25 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minHeight: 20 }}>
           {icon}
           <Typography variant="caption" sx={{ color: 'rgba(220,225,232,0.9)', fontWeight: 500 }}>
             {label}
@@ -85,7 +90,10 @@ const CompactSlider = ({
             <InfoOutlinedIcon sx={{ ml: 0.25, fontSize: '0.75rem', color: 'rgba(200,205,212,0.7)' }} />
           </Tooltip>
         </Box>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+        <Typography
+          variant="caption"
+          sx={{ color: 'rgba(255,255,255,0.6)', minWidth: 36, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+        >
           {typeof value === 'number' ? value.toFixed(step < 1 ? 1 : 0) : value}
         </Typography>
       </Box>
@@ -111,7 +119,7 @@ const CompactSlider = ({
 };
 
 const SectionHeader = ({ icon, label }: { icon: React.ReactNode; label: string }) => (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
     {icon}
     <Typography variant="caption" sx={{ color: 'rgba(220,225,232,0.9)', fontWeight: 600, letterSpacing: '0.02em' }}>
       {label}
@@ -165,6 +173,9 @@ export const EnhancedBoidsControls = ({
   };
 
   const chromeText = 'rgba(220,225,232,0.9)';
+  const panelBg = 'rgba(18, 20, 24, 0.55)';
+  const panelBorder = 'rgba(255,255,255,0.08)';
+  const sectionBg = 'rgba(255,255,255,0.03)';
 
   return (
     <div>
@@ -193,17 +204,17 @@ export const EnhancedBoidsControls = ({
       {/* Full controls panel */}
       {!isCollapsed && (
         <Card 
-          elevation={2}
+          elevation={0}
           sx={{
             width: 260,
-            backgroundColor: 'rgba(20, 22, 26, 0.6)',
-            backdropFilter: 'blur(18px)',
+            backgroundColor: panelBg,
+            backdropFilter: 'blur(20px)',
             color: chromeText,
-            borderRadius: '10px',
+            borderRadius: '12px',
             overflow: 'hidden',
             transition: 'transform 0.2s ease, opacity 0.2s ease',
-            border: '1px solid #2a2f36',
-            boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+            border: `1px solid ${panelBorder}`,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
             maxHeight: 'calc(100vh - 20px)',
             display: 'flex',
             flexDirection: 'column',
@@ -216,8 +227,8 @@ export const EnhancedBoidsControls = ({
               alignItems: 'center',
               justifyContent: 'space-between',
               p: 1,
-              backgroundColor: 'rgba(14, 16, 20, 0.8)',
-              borderBottom: '1px solid #2a2f36',
+              backgroundColor: 'rgba(14, 16, 20, 0.55)',
+              borderBottom: `1px solid ${panelBorder}`,
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -263,13 +274,25 @@ export const EnhancedBoidsControls = ({
             }}
           >
             <SectionHeader icon={<InfoIcon sx={{ color: chromeText }} fontSize="small" />} label="View" />
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1.5 }}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 1,
+                mb: 1,
+                alignItems: 'stretch',
+              }}
+            >
               <Box
                 sx={{
                   p: 0.5,
                   borderRadius: 1,
-                  border: '1px solid #2a2f36',
-                  backgroundColor: 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${panelBorder}`,
+                  backgroundColor: sectionBg,
+                  minHeight: 74,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
                 }}
               >
                 <Typography variant="caption" sx={{ color: 'rgba(200,205,212,0.8)', display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
@@ -306,66 +329,94 @@ export const EnhancedBoidsControls = ({
                 </ToggleButtonGroup>
               </Box>
 
-              <Box
-                sx={{
-                  p: 0.5,
-                  borderRadius: 1,
-                  border: '1px solid #2a2f36',
-                  backgroundColor: 'rgba(255,255,255,0.02)',
-                }}
-              >
-                <Typography variant="caption" sx={{ color: 'rgba(200,205,212,0.8)', display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <PaletteIcon sx={{ fontSize: '0.85rem' }} /> Color
-                </Typography>
-                <ToggleButtonGroup
-                  size="small"
-                  exclusive
-                  value={state.colorizationMode || 'speed'}
-                  onChange={(_, value) => value && handleColorizationChange({ target: { value } } as any)}
-                  sx={{
-                    width: '100%',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: 0.5,
-                    '& .MuiToggleButton-root': {
-                      border: '1px solid #2a2f36',
-                      color: chromeText,
-                      fontSize: '0.7rem',
-                      px: 0.5,
-                      py: 0.25,
-                      backgroundColor: 'rgba(255,255,255,0.03)',
-                    },
-                    '& .Mui-selected': {
-                      backgroundColor: 'rgba(140,150,165,0.2)',
-                    },
+              <MuiFormControl size="small" fullWidth variant="outlined" sx={{ 
+                '.MuiOutlinedInput-notchedOutline': { borderColor: panelBorder },
+                backgroundColor: sectionBg,
+                borderRadius: 1,
+                px: 0.5,
+                py: 0.4,
+                minHeight: 74,
+                display: 'flex',
+                justifyContent: 'center',
+              }}>
+                <MuiInputLabel id="color-select-label" sx={{ color: 'rgba(200,205,212,0.8)', fontSize: '0.72rem' }}>
+                  Colorize
+                </MuiInputLabel>
+                <MuiSelect
+                  labelId="color-select-label"
+                  value={state.colorizationMode || 'orientation'}
+                  onChange={handleColorizationChange as any}
+                  label="Colorize"
+                  startAdornment={<PaletteIcon sx={{ mr: 0.5, fontSize: '0.9rem', color: 'rgba(200,205,212,0.9)' }} />}
+                  sx={{ 
+                    color: chromeText, 
+                    fontSize: '0.72rem',
+                    '.MuiSelect-select': { py: 0.6, display: 'flex', alignItems: 'center', gap: 0.5 }
                   }}
                 >
-                  <ToggleButton value="speed">
-                    <SpeedIcon sx={{ fontSize: '0.85rem' }} />
-                  </ToggleButton>
-                  <ToggleButton value="orientation">
-                    <AltRouteIcon sx={{ fontSize: '0.85rem' }} />
-                  </ToggleButton>
-                  <ToggleButton value="neighbors">
-                    <GroupsIcon sx={{ fontSize: '0.85rem' }} />
-                  </ToggleButton>
-                  <ToggleButton value="acceleration">
-                    <BoltIcon sx={{ fontSize: '0.85rem' }} />
-                  </ToggleButton>
-                  <ToggleButton value="turning">
-                    <CallSplitIcon sx={{ fontSize: '0.85rem' }} />
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
+                  <MuiMenuItem value="speed">Speed</MuiMenuItem>
+                  <MuiMenuItem value="orientation">Orientation</MuiMenuItem>
+                  <MuiMenuItem value="neighbors">Neighbors</MuiMenuItem>
+                  <MuiMenuItem value="acceleration">Acceleration</MuiMenuItem>
+                  <MuiMenuItem value="turning">Turning</MuiMenuItem>
+                </MuiSelect>
+              </MuiFormControl>
             </Box>
 
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+              <MuiFormControl size="small" fullWidth variant="outlined" sx={{ 
+                '.MuiOutlinedInput-notchedOutline': { borderColor: panelBorder },
+                backgroundColor: sectionBg,
+                borderRadius: 1,
+                px: 0.5,
+                py: 0.4,
+                minHeight: 74,
+                display: 'flex',
+                justifyContent: 'center',
+              }}>
+                <MuiInputLabel id="spectrum-select-label" sx={{ color: 'rgba(200,205,212,0.8)', fontSize: '0.72rem' }}>
+                  Spectrum
+                </MuiInputLabel>
+                <MuiSelect
+                  labelId="spectrum-select-label"
+                  value={state.parameters.colorSpectrum}
+                  onChange={(e) => onParameterChange({ colorSpectrum: e.target.value as any })}
+                  label="Spectrum"
+                  startAdornment={<PaletteIcon sx={{ mr: 0.5, fontSize: '0.9rem', color: 'rgba(200,205,212,0.9)' }} />}
+                  sx={{ 
+                    color: chromeText, 
+                    fontSize: '0.72rem',
+                    '.MuiSelect-select': { py: 0.6, display: 'flex', alignItems: 'center', gap: 0.5 }
+                  }}
+                >
+                  <MuiMenuItem value="chrome">Chrome</MuiMenuItem>
+                  <MuiMenuItem value="cool">Cool</MuiMenuItem>
+                  <MuiMenuItem value="warm">Warm</MuiMenuItem>
+                  <MuiMenuItem value="rainbow">Rainbow</MuiMenuItem>
+                  <MuiMenuItem value="mono">Mono</MuiMenuItem>
+                </MuiSelect>
+              </MuiFormControl>
+
+              <Box sx={{ minHeight: 74, display: 'flex', alignItems: 'center' }}>
+                <CompactSlider
+                  label="Sensitivity"
+                  value={state.parameters.colorSensitivity}
+                  min={0.5}
+                  max={3}
+                  step={0.1}
+                  onChange={handleSliderChange('colorSensitivity')}
+                  tooltip="Amplify or soften color variation"
+                  icon={<SpeedIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
+                />
+              </Box>
+            </Box>
             <Box
               sx={{
                 p: 0.5,
                 borderRadius: 1,
-                border: '1px solid #2a2f36',
-                backgroundColor: 'rgba(255,255,255,0.02)',
-                mb: 1.5,
+                border: `1px solid ${panelBorder}`,
+                backgroundColor: sectionBg,
+                mb: 1.2,
               }}
             >
               <Typography variant="caption" sx={{ color: 'rgba(200,205,212,0.8)', display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
@@ -458,6 +509,16 @@ export const EnhancedBoidsControls = ({
                 onChange={handleSliderChange('separationForce')}
                 tooltip="How strongly boids avoid each other"
                 icon={<CallSplitIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
+              />
+              <CompactSlider
+                label="Noise"
+                value={state.parameters.noiseStrength}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={handleSliderChange('noiseStrength')}
+                tooltip="Randomness added to movement to prevent rigid alignment"
+                icon={<GrainIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
                 label="Max Speed"

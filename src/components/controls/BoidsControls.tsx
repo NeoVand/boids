@@ -279,6 +279,34 @@ export const BoidsControls = ({
               </Select>
             </FormControl>
 
+            <FormControl size="small" fullWidth variant="outlined" sx={{ 
+              '.MuiOutlinedInput-notchedOutline': { 
+                borderColor: 'rgba(100, 100, 150, 0.3)' 
+              },
+              mb: 2
+            }}>
+              <InputLabel id="spectrum-select-label" sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>Spectrum</InputLabel>
+              <Select
+                labelId="spectrum-select-label"
+                value={state.parameters.colorSpectrum}
+                onChange={(e) => onParameterChange({ colorSpectrum: e.target.value as any })}
+                label="Spectrum"
+                sx={{ 
+                  color: 'white', 
+                  fontSize: '0.75rem',
+                  '.MuiSelect-select': { 
+                    py: 0.75 
+                  }
+                }}
+              >
+                <MenuItem value="chrome">Chrome</MenuItem>
+                <MenuItem value="cool">Cool</MenuItem>
+                <MenuItem value="warm">Warm</MenuItem>
+                <MenuItem value="rainbow">Rainbow</MenuItem>
+                <MenuItem value="mono">Mono</MenuItem>
+              </Select>
+            </FormControl>
+
             {/* Behavior Sliders */}
             <CompactSlider
               label="Size"
@@ -319,6 +347,16 @@ export const BoidsControls = ({
               onChange={handleSliderChange('separationForce')}
               tooltip="How strongly boids avoid each other"
             />
+
+            <CompactSlider
+              label="Noise"
+              value={state.parameters.noiseStrength}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={handleSliderChange('noiseStrength')}
+              tooltip="Randomness added to movement to prevent rigid alignment"
+            />
             
             <CompactSlider
               label="Perception"
@@ -348,6 +386,16 @@ export const BoidsControls = ({
               step={0.05}
               onChange={handleSliderChange('attractionForce')}
               tooltip="Strength of attraction to cursor"
+            />
+
+            <CompactSlider
+              label="Color Sensitivity"
+              value={state.parameters.colorSensitivity}
+              min={0.5}
+              max={3}
+              step={0.1}
+              onChange={handleSliderChange('colorSensitivity')}
+              tooltip="Amplify or soften color variation"
             />
             
             <CompactSlider

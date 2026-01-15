@@ -13,13 +13,9 @@ export const BoidsSimulation = () => {
     // Create initial state with more boids and optimized parameters
     const initialState = createInitialState(2000, canvasWidth, canvasHeight);
     
-    // Set optimized parameters for better performance
-    initialState.parameters.attractionForce = 2.0;
-    initialState.parameters.maxSpeed = 2.5;
-    initialState.parameters.perceptionRadius = 30; // Smaller perception radius for better performance
-    initialState.parameters.separationForce = 1.5;
+    // Keep defaults from DEFAULT_PARAMETERS for consistent initial UX
     initialState.gridCellSize = initialState.parameters.perceptionRadius;
-    initialState.particleType = 'trail'; // Start with simple disks for better performance
+    initialState.particleType = 'disk';
     
     return initialState;
   });

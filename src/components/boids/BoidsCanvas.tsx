@@ -970,7 +970,7 @@ const renderBoidsCanvas2D = (
     // if (i < 3) {
     //   console.log(`Boid ${i} position:`, boid.position.x, boid.position.y);
     // }
-    const color = getBoidColor(boid, i, colorPalette, colorizationMode || 'default', state);
+    const color = getBoidColor(boid, i, colorPalette, colorizationMode || 'speed', state);
     
     ctx.save();
     
@@ -1048,57 +1048,71 @@ const generateColorPalette = (baseColor: string, count: number): string[] => {
   return palette;
 };
 
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+const applySensitivity = (value: number, sensitivity: number): number => {
+  const s = Math.max(0.1, sensitivity);
+  return clamp01(value * s);
+};
+
+const spectrumToColor = (
+  spectrum: BoidsState['parameters']['colorSpectrum'],
+  t: number
+): string => {
+  const v = clamp01(t);
+  switch (spectrum) {
+    case 'mono': {
+      const l = 30 + v * 50;
+      return `hsl(210, 10%, ${Math.round(l)}%)`;
+    }
+    case 'warm': {
+      const hue = 50 - v * 50;
+      return `hsl(${Math.round(hue)}, 85%, 55%)`;
+    }
+    case 'cool': {
+      const hue = 220 - v * 80;
+      return `hsl(${Math.round(hue)}, 80%, 55%)`;
+    }
+    case 'rainbow': {
+      const hue = 260 - v * 260;
+      return `hsl(${Math.round(hue)}, 85%, 55%)`;
+    }
+    case 'chrome':
+    default: {
+      const hue = 210 - v * 210;
+      return `hsl(${Math.round(hue)}, 70%, 55%)`;
+    }
+  }
+};
+
 // Get a color based on colorization mode
 const getBoidColor = (
-  boid: any, 
-  index: number, 
-  colorPalette: string[], 
+  boid: any,
+  index: number,
+  colorPalette: string[],
   colorizationMode: string,
   state: BoidsState
 ): string => {
+  const spectrum = state.parameters.colorSpectrum || 'chrome';
+  const sensitivity = state.parameters.colorSensitivity ?? 1;
+
   switch (colorizationMode) {
     case 'speed': {
-      // Color based on speed (magnitude of velocity)
       const speed = Math.sqrt(boid.velocity.x * boid.velocity.x + boid.velocity.y * boid.velocity.y);
-      
-      // Use the state's maxSpeed parameter but scale it to create a better distribution
       const maxSpeed = state.parameters.maxSpeed;
-      
-      // Most boids operate in the 25-85% of max speed range
-      // We'll scale our colors to emphasize this range
-      const minEffectiveSpeed = 0.1 * maxSpeed;  // Slow threshold (10% of max)
-      const maxEffectiveSpeed = 0.9 * maxSpeed;  // Fast threshold (90% of max)
-      
-      // Normalize to our effective range
+      const minEffectiveSpeed = 0.1 * maxSpeed;
+      const maxEffectiveSpeed = 0.9 * maxSpeed;
       let adjustedSpeed = (speed - minEffectiveSpeed) / (maxEffectiveSpeed - minEffectiveSpeed);
-      // Clamp to 0-1 range
-      adjustedSpeed = Math.max(0, Math.min(1, adjustedSpeed));
-      
-      // Use a tri-color scale: blue (cold) -> teal -> green -> yellow -> red (hot)
-      // Map 0-1 to 240-0 (blue to red) with extra emphasis on the middle range
-      let hue;
-      if (adjustedSpeed < 0.33) {
-        // Blue (240) to teal/green (180)
-        hue = 240 - (adjustedSpeed * 3) * 60;
-      } else if (adjustedSpeed < 0.66) {
-        // Teal/green (180) to yellow (60)
-        hue = 180 - ((adjustedSpeed - 0.33) * 3) * 120;
-      } else {
-        // Yellow (60) to red (0)
-        hue = 60 - ((adjustedSpeed - 0.66) * 3) * 60;
-      }
-      
-      // Boost saturation and lightness for better visibility of the coloring
-      return `hsl(${Math.round(hue)}, 90%, 60%)`;
+      adjustedSpeed = clamp01(adjustedSpeed);
+      return spectrumToColor(spectrum, applySensitivity(adjustedSpeed, sensitivity));
     }
     case 'acceleration': {
       const ax = boid.acceleration?.x ?? 0;
       const ay = boid.acceleration?.y ?? 0;
       const accel = Math.sqrt(ax * ax + ay * ay);
       const maxAccel = Math.max(0.001, state.parameters.maxForce * 4);
-      const t = Math.max(0, Math.min(1, accel / maxAccel));
-      const hue = 220 - t * 220; // blue -> red
-      return `hsl(${Math.round(hue)}, 85%, 60%)`;
+      const t = applySensitivity(accel / maxAccel, sensitivity);
+      return spectrumToColor(spectrum, t);
     }
     case 'turning': {
       const vx = boid.velocity.x;
@@ -1108,55 +1122,21 @@ const getBoidColor = (
       const vMag = Math.sqrt(vx * vx + vy * vy);
       const aMag = Math.sqrt(ax * ax + ay * ay);
       const denom = Math.max(0.0001, vMag * aMag);
-      const turn = Math.abs(vx * ay - vy * ax) / denom; // 0..1-ish
-      const t = Math.max(0, Math.min(1, turn));
-      const hue = 160 - t * 160; // green -> red
-      return `hsl(${Math.round(hue)}, 80%, 58%)`;
+      const turn = Math.abs(vx * ay - vy * ax) / denom;
+      return spectrumToColor(spectrum, applySensitivity(turn, sensitivity));
     }
     case 'orientation': {
-      // Color based on direction angle of velocity vector
       const angle = Math.atan2(boid.velocity.y, boid.velocity.x);
-      
-      // Convert to degrees and normalize to 0-360 range
-      // Add 180° to shift from [-180,180] to [0,360]
-      let degrees = (angle * 180 / Math.PI) + 180;
-      
-      // Use the HSL color wheel directly:
-      // 0° = Red, 60° = Yellow, 120° = Green, 180° = Cyan, 240° = Blue, 300° = Magenta
-      
-      // Create more vibrant colors with high saturation and balanced brightness
-      return `hsl(${Math.round(degrees)}, 100%, 65%)`;
+      const normalized = (angle + Math.PI) / (2 * Math.PI);
+      // Wrap to avoid 0/1 discontinuity for spectrum interpolation
+      const wrapped = (normalized + 0.5) % 1;
+      return spectrumToColor(spectrum, applySensitivity(wrapped, sensitivity));
     }
     case 'neighbors': {
-      // Use cached neighbor count computed during the simulation step.
-      // This avoids doing an O(k) neighbor scan again during rendering.
       const neighborCount = typeof boid.neighborCount === 'number' ? boid.neighborCount : 0;
-      
-      // Adjust thresholds based on observed neighbor counts
-      // Use a higher max to get a broader distribution
-      const maxNeighbors = 24;  // Increase threshold for better distribution
-      
-      // Linear mapping - no square root to avoid skewing toward higher values
-      const normalizedCount = Math.min(1, neighborCount / maxNeighbors);
-      
-      // Use a rainbow gradient with more blues and greens
-      let hue;
-      if (normalizedCount <= 0.4) {
-        // More room for blues (0-40% of range)
-        // Map 0-0.4 to 240-180 (blue to cyan)
-        hue = 240 - (normalizedCount / 0.4) * 60;
-      } else if (normalizedCount <= 0.7) {
-        // More room for greens (40-70% of range)
-        // Map 0.4-0.7 to 180-90 (cyan to yellow-green)
-        hue = 180 - ((normalizedCount - 0.4) / 0.3) * 90;
-      } else {
-        // Less room for reds (70-100% of range)
-        // Map 0.7-1.0 to 90-0 (yellow-green to red)
-        hue = 90 - ((normalizedCount - 0.7) / 0.3) * 90;
-      }
-      
-      // Use high saturation and brightness for vibrant colors
-      return `hsl(${Math.round(hue)}, 90%, 60%)`;
+      const maxNeighbors = 24;
+      const normalizedCount = clamp01(neighborCount / maxNeighbors);
+      return spectrumToColor(spectrum, applySensitivity(normalizedCount, sensitivity));
     }
     default:
       return colorPalette[index % colorPalette.length];

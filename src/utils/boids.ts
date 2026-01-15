@@ -37,11 +37,14 @@ export interface BoidsParameters {
   perceptionRadius: number;
   maxSpeed: number;
   maxForce: number;
+  noiseStrength: number;
   edgeBehavior: 'wrap' | 'bounce';
   edgeMargin: number;
   trailLength: number;
   attractionForce: number;
   attractionMode: 'off' | 'attract' | 'repel';
+  colorSpectrum: 'chrome' | 'cool' | 'warm' | 'rainbow' | 'mono';
+  colorSensitivity: number;
   /**
    * Visual size multiplier for boids (render-only).
    * 1 = default size.
@@ -73,15 +76,18 @@ export interface BoidsState {
 export const DEFAULT_PARAMETERS: BoidsParameters = {
   alignmentForce: 1.0,
   cohesionForce: 1.0,
-  separationForce: 1.5,
+  separationForce: 1.3,
   perceptionRadius: 50,
-  maxSpeed: 4,
+  maxSpeed: 5.0,
   maxForce: 0.1,
+  noiseStrength: 0.35,
   edgeBehavior: 'wrap',
   edgeMargin: 50,
   trailLength: 150,
-  attractionForce: 0.1,
-  attractionMode: 'off',
+  attractionForce: 0.5,
+  attractionMode: 'attract',
+  colorSpectrum: 'chrome',
+  colorSensitivity: 1.9,
   boidSize: 0.5,
 };
 
@@ -260,7 +266,7 @@ export const createInitialState = (
     gridCellSize: cellSize,
     cursorPosition: null,
     isAttracting: false,
-    colorizationMode: 'speed'
+    colorizationMode: 'orientation'
   };
 };
 
@@ -767,6 +773,14 @@ export const updateBoid = (
     attraction(boid, cursorPosition, parameters, cursorBoostMultiplier, attractionForceVec);
     boid.acceleration.x += attractionForceVec.x;
     boid.acceleration.y += attractionForceVec.y;
+  }
+
+  // Add controlled noise to avoid overly rigid alignment
+  if (parameters.noiseStrength > 0) {
+    const angle = Math.random() * Math.PI * 2;
+    const noiseMagnitude = parameters.maxForce * parameters.noiseStrength;
+    boid.acceleration.x += Math.cos(angle) * noiseMagnitude;
+    boid.acceleration.y += Math.sin(angle) * noiseMagnitude;
   }
 
   // Update velocity with acceleration

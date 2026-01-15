@@ -20,13 +20,7 @@ export const EnhancedBoidsSimulation = () => {
     // Create initial state with reasonable number of boids
     const initialState = createInitialState(2000, canvasWidth, canvasHeight);
     
-    // Set optimized parameters
-    initialState.parameters.attractionForce = 2.0;
-    initialState.parameters.maxSpeed = 3.5;
-    initialState.parameters.perceptionRadius = 40;
-    initialState.parameters.separationForce = 1.5;
-    initialState.parameters.alignmentForce = 1.2;
-    initialState.parameters.cohesionForce = 1.0;
+    // Keep defaults from DEFAULT_PARAMETERS for consistent initial UX
     initialState.gridCellSize = initialState.parameters.perceptionRadius;
     initialState.particleType = 'disk';
     
