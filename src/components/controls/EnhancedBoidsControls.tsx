@@ -7,8 +7,6 @@ import {
   Slider,
   Select as MuiSelect,
   MenuItem as MuiMenuItem,
-  FormControl as MuiFormControl,
-  InputLabel as MuiInputLabel,
   Button,
   Tooltip,
   Divider,
@@ -127,6 +125,45 @@ const SectionHeader = ({ icon, label }: { icon: React.ReactNode; label: string }
   </Box>
 );
 
+const FieldBlock = ({
+  icon,
+  label,
+  children,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <Box
+    sx={{
+      p: 0.6,
+      borderRadius: 1,
+      border: '1px solid rgba(255,255,255,0.08)',
+      backgroundColor: 'rgba(255,255,255,0.03)',
+      minHeight: 76,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 0.5,
+      justifyContent: 'center',
+    }}
+  >
+    <Typography
+      variant="caption"
+      sx={{
+        color: 'rgba(200,205,212,0.85)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.5,
+        letterSpacing: '0.01em',
+      }}
+    >
+      {icon}
+      {label}
+    </Typography>
+    {children}
+  </Box>
+);
+
 export const EnhancedBoidsControls = ({
   state,
   onParameterChange,
@@ -206,7 +243,7 @@ export const EnhancedBoidsControls = ({
         <Card 
           elevation={0}
           sx={{
-            width: 260,
+            width: 300,
             backgroundColor: panelBg,
             backdropFilter: 'blur(20px)',
             color: chromeText,
@@ -274,30 +311,8 @@ export const EnhancedBoidsControls = ({
             }}
           >
             <SectionHeader icon={<InfoIcon sx={{ color: chromeText }} fontSize="small" />} label="View" />
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 1,
-                mb: 1,
-                alignItems: 'stretch',
-              }}
-            >
-              <Box
-                sx={{
-                  p: 0.5,
-                  borderRadius: 1,
-                  border: `1px solid ${panelBorder}`,
-                  backgroundColor: sectionBg,
-                  minHeight: 74,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                }}
-              >
-                <Typography variant="caption" sx={{ color: 'rgba(200,205,212,0.8)', display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <CompareArrowsIcon sx={{ fontSize: '0.85rem' }} /> Edge
-                </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+              <FieldBlock icon={<CompareArrowsIcon sx={{ fontSize: '0.85rem' }} />} label="Edge">
                 <ToggleButtonGroup
                   size="small"
                   exclusive
@@ -307,7 +322,7 @@ export const EnhancedBoidsControls = ({
                     width: '100%',
                     '& .MuiToggleButton-root': {
                       flex: 1,
-                      border: '1px solid #2a2f36',
+                      border: '1px solid rgba(255,255,255,0.08)',
                       color: chromeText,
                       textTransform: 'none',
                       fontSize: '0.7rem',
@@ -315,9 +330,8 @@ export const EnhancedBoidsControls = ({
                       py: 0.25,
                       backgroundColor: 'rgba(255,255,255,0.03)',
                     },
-                    '& .Mui-selected': {
-                      backgroundColor: 'rgba(140,150,165,0.2)',
-                    },
+                    '& .MuiToggleButton-root:focus-visible': { outline: 'none' },
+                    '& .Mui-selected': { backgroundColor: 'rgba(140,150,165,0.2)' },
                   }}
                 >
                   <ToggleButton value="wrap">
@@ -327,31 +341,31 @@ export const EnhancedBoidsControls = ({
                     <CallSplitIcon sx={{ fontSize: '0.85rem', mr: 0.5 }} /> Bounce
                   </ToggleButton>
                 </ToggleButtonGroup>
-              </Box>
+              </FieldBlock>
 
-              <MuiFormControl size="small" fullWidth variant="outlined" sx={{ 
-                '.MuiOutlinedInput-notchedOutline': { borderColor: panelBorder },
-                backgroundColor: sectionBg,
-                borderRadius: 1,
-                px: 0.5,
-                py: 0.4,
-                minHeight: 74,
-                display: 'flex',
-                justifyContent: 'center',
-              }}>
-                <MuiInputLabel id="color-select-label" sx={{ color: 'rgba(200,205,212,0.8)', fontSize: '0.72rem' }}>
-                  Colorize
-                </MuiInputLabel>
+              <FieldBlock icon={<PaletteIcon sx={{ fontSize: '0.85rem' }} />} label="Colorize">
                 <MuiSelect
-                  labelId="color-select-label"
                   value={state.colorizationMode || 'orientation'}
                   onChange={handleColorizationChange as any}
-                  label="Colorize"
-                  startAdornment={<PaletteIcon sx={{ mr: 0.5, fontSize: '0.9rem', color: 'rgba(200,205,212,0.9)' }} />}
-                  sx={{ 
-                    color: chromeText, 
+                  displayEmpty
+                  sx={{
+                    color: chromeText,
                     fontSize: '0.72rem',
-                    '.MuiSelect-select': { py: 0.6, display: 'flex', alignItems: 'center', gap: 0.5 }
+                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    borderRadius: 1,
+                    '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.08)' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.18)' },
+                    '.MuiSelect-select': { py: 0.6, display: 'flex', alignItems: 'center', gap: 0.5 },
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        backgroundColor: 'rgba(20,22,26,0.9)',
+                        backdropFilter: 'blur(12px)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: chromeText,
+                      },
+                    },
                   }}
                 >
                   <MuiMenuItem value="speed">Speed</MuiMenuItem>
@@ -360,33 +374,33 @@ export const EnhancedBoidsControls = ({
                   <MuiMenuItem value="acceleration">Acceleration</MuiMenuItem>
                   <MuiMenuItem value="turning">Turning</MuiMenuItem>
                 </MuiSelect>
-              </MuiFormControl>
+              </FieldBlock>
             </Box>
 
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
-              <MuiFormControl size="small" fullWidth variant="outlined" sx={{ 
-                '.MuiOutlinedInput-notchedOutline': { borderColor: panelBorder },
-                backgroundColor: sectionBg,
-                borderRadius: 1,
-                px: 0.5,
-                py: 0.4,
-                minHeight: 74,
-                display: 'flex',
-                justifyContent: 'center',
-              }}>
-                <MuiInputLabel id="spectrum-select-label" sx={{ color: 'rgba(200,205,212,0.8)', fontSize: '0.72rem' }}>
-                  Spectrum
-                </MuiInputLabel>
+              <FieldBlock icon={<PaletteIcon sx={{ fontSize: '0.85rem' }} />} label="Spectrum">
                 <MuiSelect
-                  labelId="spectrum-select-label"
                   value={state.parameters.colorSpectrum}
                   onChange={(e) => onParameterChange({ colorSpectrum: e.target.value as any })}
-                  label="Spectrum"
-                  startAdornment={<PaletteIcon sx={{ mr: 0.5, fontSize: '0.9rem', color: 'rgba(200,205,212,0.9)' }} />}
-                  sx={{ 
-                    color: chromeText, 
+                  displayEmpty
+                  sx={{
+                    color: chromeText,
                     fontSize: '0.72rem',
-                    '.MuiSelect-select': { py: 0.6, display: 'flex', alignItems: 'center', gap: 0.5 }
+                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    borderRadius: 1,
+                    '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.08)' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.18)' },
+                    '.MuiSelect-select': { py: 0.6, display: 'flex', alignItems: 'center', gap: 0.5 },
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        backgroundColor: 'rgba(20,22,26,0.9)',
+                        backdropFilter: 'blur(12px)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: chromeText,
+                      },
+                    },
                   }}
                 >
                   <MuiMenuItem value="chrome">Chrome</MuiMenuItem>
@@ -395,20 +409,19 @@ export const EnhancedBoidsControls = ({
                   <MuiMenuItem value="rainbow">Rainbow</MuiMenuItem>
                   <MuiMenuItem value="mono">Mono</MuiMenuItem>
                 </MuiSelect>
-              </MuiFormControl>
+              </FieldBlock>
 
-              <Box sx={{ minHeight: 74, display: 'flex', alignItems: 'center' }}>
+              <FieldBlock icon={<SpeedIcon sx={{ fontSize: '0.85rem' }} />} label="Sensitivity">
                 <CompactSlider
-                  label="Sensitivity"
+                  label=""
                   value={state.parameters.colorSensitivity}
                   min={0.5}
                   max={3}
                   step={0.1}
                   onChange={handleSliderChange('colorSensitivity')}
                   tooltip="Amplify or soften color variation"
-                  icon={<SpeedIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
                 />
-              </Box>
+              </FieldBlock>
             </Box>
             <Box
               sx={{

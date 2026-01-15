@@ -31,7 +31,7 @@ export const EnhancedBoidsSimulation = () => {
   });
 
   // State for controls panel collapsed state
-  const [isControlsCollapsed, setIsControlsCollapsed] = useState(false);
+  const [isControlsCollapsed, setIsControlsCollapsed] = useState(true);
 
   // Use refs for values that need to be accessed in animation loop (CPU mode only)
   const stateRef = useRef(state);
