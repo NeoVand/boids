@@ -68,6 +68,42 @@ export const EnhancedBoidsSimulation = () => {
     stateRef.current = state;
   }, [state]);
 
+  // Re-initialize boids after mount with correct dimensions
+  // This fixes the issue where initial viewport dimensions might be wrong on hard refresh
+  const hasInitializedRef = useRef(false);
+  useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+    
+    // Wait a frame for the browser to finish layout
+    requestAnimationFrame(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      
+      const rect = container.getBoundingClientRect();
+      const w = Math.max(100, Math.floor(rect.width));
+      const h = Math.max(100, Math.floor(rect.height));
+      
+      // If dimensions are significantly different, reinitialize
+      if (Math.abs(w - state.canvasWidth) > 50 || Math.abs(h - state.canvasHeight) > 50) {
+        setState(prev => {
+          const newState = createInitialState(prev.boids.length, w, h);
+          newState.parameters = { ...prev.parameters };
+          newState.particleType = prev.particleType;
+          newState.colorizationMode = prev.colorizationMode;
+          return newState;
+        });
+      } else {
+        // Just update dimensions without reinitializing boids
+        setState(prev => ({
+          ...prev,
+          canvasWidth: w,
+          canvasHeight: h
+        }));
+      }
+    });
+  }, []);
+
   // Handle parameter change
   const handleParameterChange = useCallback((params: Partial<BoidsParameters>) => {
     setState(prev => ({

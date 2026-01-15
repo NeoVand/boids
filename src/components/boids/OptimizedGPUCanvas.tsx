@@ -61,6 +61,7 @@ export const OptimizedGPUCanvas = ({
   const [isDragging, setIsDragging] = useState(false);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [resetToken, setResetToken] = useState(0);
+  const lastInitDimsRef = useRef<{w: number, h: number} | null>(null);
   
   // Performance tracking refs
   const fpsCounterRef = useRef(0);
@@ -69,12 +70,15 @@ export const OptimizedGPUCanvas = ({
   const simTimesRef = useRef<number[]>([]);
   const renderTimesRef = useRef<number[]>([]);
   
-  // GPU config based on state
+  // GPU config based on state - use fixed large grid to avoid re-init on resize
   const gpuConfig: GPUBoidsConfig = useMemo(() => {
     const boidCount = Math.max(100, Math.min(100000, state.boids.length));
     const gridCellSize = Math.max(20, state.parameters.perceptionRadius);
-    const gridWidth = Math.ceil(state.canvasWidth / gridCellSize);
-    const gridHeight = Math.ceil(state.canvasHeight / gridCellSize);
+    // Use fixed large grid dimensions to avoid re-init on window resize
+    // Actual canvas dimensions are passed via updateParameters
+    const maxDim = 4096;
+    const gridWidth = Math.ceil(maxDim / gridCellSize);
+    const gridHeight = Math.ceil(maxDim / gridCellSize);
     
     return {
       maxBoids: boidCount,
@@ -82,7 +86,7 @@ export const OptimizedGPUCanvas = ({
       gridWidth,
       gridHeight
     };
-  }, [state.boids.length, state.parameters.perceptionRadius, state.canvasWidth, state.canvasHeight]);
+  }, [state.boids.length, state.parameters.perceptionRadius]);
   
   // Canvas coordinate helper
   const getCanvasCoordinates = useCallback((e: MouseEvent | TouchEvent): { x: number; y: number } | null => {
@@ -207,6 +211,23 @@ export const OptimizedGPUCanvas = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     
+    // Skip init if canvas dimensions are too small (wait for proper sizing)
+    const minDim = 50;
+    if (state.canvasWidth < minDim || state.canvasHeight < minDim) {
+      return;
+    }
+    
+    // Skip if already initialized with same dimensions (no significant change)
+    const last = lastInitDimsRef.current;
+    if (last && gpuBoidsRef.current) {
+      const dw = Math.abs(last.w - state.canvasWidth);
+      const dh = Math.abs(last.h - state.canvasHeight);
+      if (dw < 100 && dh < 100) {
+        // Dimensions are similar, don't reinit - dimension update effect handles this
+        return;
+      }
+    }
+    
     try {
       const gl = canvas.getContext('webgl2', {
         antialias: false,
@@ -267,7 +288,7 @@ export const OptimizedGPUCanvas = ({
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       
       setGpuMode('webgl2');
-      console.log('Optimized GPU boids initialized with', gpuConfig.maxBoids, 'boids');
+      lastInitDimsRef.current = { w: state.canvasWidth, h: state.canvasHeight };
       
     } catch (error) {
       console.error('GPU initialization failed:', error);
@@ -280,7 +301,7 @@ export const OptimizedGPUCanvas = ({
         gpuBoidsRef.current = null;
       }
     };
-  }, [gpuConfig, resetToken]);
+  }, [gpuConfig, resetToken, state.canvasWidth, state.canvasHeight]);
 
   // Handle WebGL context loss / restore (common on mobile orientation changes)
   useEffect(() => {
@@ -309,24 +330,35 @@ export const OptimizedGPUCanvas = ({
     };
   }, []);
   
-  // Update canvas dimensions
+  // Update canvas dimensions - always apply to ensure sync
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    if (state.canvasWidth < 2 || state.canvasHeight < 2) return;
+    const w = Math.max(2, state.canvasWidth);
+    const h = Math.max(2, state.canvasHeight);
 
-    if (canvas.width !== state.canvasWidth || canvas.height !== state.canvasHeight) {
-      canvas.width = state.canvasWidth;
-      canvas.height = state.canvasHeight;
-      projectionMatrixRef.current = createProjectionMatrix(state.canvasWidth, state.canvasHeight);
-      
-      if (gpuBoidsRef.current) {
-        gpuBoidsRef.current.updateParameters({
-          canvasWidth: state.canvasWidth,
-          canvasHeight: state.canvasHeight
-        });
-      }
+    // Always update buffer size
+    canvas.width = w;
+    canvas.height = h;
+    
+    // Update projection matrix
+    projectionMatrixRef.current = createProjectionMatrix(w, h);
+    
+    // Update GPU renderer with new dimensions and clamp boid positions
+    if (gpuBoidsRef.current) {
+      gpuBoidsRef.current.updateParameters({
+        canvasWidth: w,
+        canvasHeight: h
+      });
+      // Force boids to be within new bounds
+      gpuBoidsRef.current.clampPositionsToCanvas(w, h);
+    }
+    
+    // Update WebGL viewport if context exists
+    const gl = glRef.current;
+    if (gl) {
+      gl.viewport(0, 0, w, h);
     }
   }, [state.canvasWidth, state.canvasHeight]);
   
@@ -373,12 +405,7 @@ export const OptimizedGPUCanvas = ({
   
   // Animation loop
   useEffect(() => {
-    // Create projection matrix if not exists
-    if (!projectionMatrixRef.current && state.canvasWidth > 0 && state.canvasHeight > 0) {
-      projectionMatrixRef.current = createProjectionMatrix(state.canvasWidth, state.canvasHeight);
-    }
-    
-    if (!state.isRunning || gpuMode === 'cpu' || !gpuBoidsRef.current || !projectionMatrixRef.current) {
+    if (!state.isRunning || gpuMode === 'cpu' || !gpuBoidsRef.current) {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -436,6 +463,9 @@ export const OptimizedGPUCanvas = ({
         return;
       }
 
+      // Always recompute projection matrix from actual canvas size (cheap, ensures correctness)
+      const projMatrix = createProjectionMatrix(canvas.width, canvas.height);
+
       // Clear
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -445,9 +475,9 @@ export const OptimizedGPUCanvas = ({
       gpuBoidsRef.current?.simulate();
       simTimesRef.current.push(performance.now() - simStart);
       
-      // Render
+      // Render with fresh projection
       const renderStart = performance.now();
-      gpuBoidsRef.current?.render(projectionMatrixRef.current!);
+      gpuBoidsRef.current?.render(projMatrix);
       renderTimesRef.current.push(performance.now() - renderStart);
       
       animationFrameRef.current = requestAnimationFrame(animate);
@@ -461,16 +491,22 @@ export const OptimizedGPUCanvas = ({
         animationFrameRef.current = null;
       }
     };
-  }, [state.isRunning, gpuMode, state.canvasWidth, state.canvasHeight, onPerformanceUpdate]);
+  }, [state.isRunning, gpuMode, onPerformanceUpdate]);
   
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div style={{ 
+      position: 'absolute', 
+      inset: 0,
+      overflow: 'hidden'
+    }}>
       <canvas
         ref={canvasRef}
-        width={state.canvasWidth}
-        height={state.canvasHeight}
+        width={Math.max(2, state.canvasWidth)}
+        height={Math.max(2, state.canvasHeight)}
         className={className}
         style={{
+          position: 'absolute',
+          inset: 0,
           margin: 0,
           padding: 0,
           display: 'block',

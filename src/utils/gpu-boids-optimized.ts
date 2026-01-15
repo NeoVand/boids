@@ -1039,6 +1039,41 @@ export class OptimizedGPUBoids {
     this.uploadData();
   }
   
+  public clampPositionsToCanvas(canvasWidth: number, canvasHeight: number): void {
+    // Clamp all boid positions to be within the canvas bounds
+    // This is needed when canvas dimensions change (e.g., orientation change)
+    let modified = false;
+    const numBoids = this.config.maxBoids;
+    
+    for (let i = 0; i < numBoids; i++) {
+      const pi = i * 2;
+      const x = this.positions[pi];
+      const y = this.positions[pi + 1];
+      
+      if (x < 0 || x > canvasWidth || y < 0 || y > canvasHeight) {
+        // Wrap position into canvas bounds
+        this.positions[pi] = ((x % canvasWidth) + canvasWidth) % canvasWidth;
+        this.positions[pi + 1] = ((y % canvasHeight) + canvasHeight) % canvasHeight;
+        modified = true;
+      }
+    }
+    
+    if (modified) {
+      // Re-upload positions to GPU
+      const gl = this.gl;
+      for (let i = 0; i < 2; i++) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuffers[i]);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.positions);
+      }
+      this.prevPositions.set(this.positions);
+      // Clear trails to avoid artifacts
+      this.trailHead.fill(0);
+      this.trailCount.fill(0);
+      this.trailX.fill(Number.NaN);
+      this.trailY.fill(Number.NaN);
+    }
+  }
+  
   public simulate(): void {
     if (!this.simulationProgram || !this.uniforms) return;
     
