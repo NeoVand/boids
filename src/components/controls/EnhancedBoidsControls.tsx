@@ -35,6 +35,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CallSplitIcon from '@mui/icons-material/CallSplit';
 import NorthEastIcon from '@mui/icons-material/NorthEast';
 import SouthWestIcon from '@mui/icons-material/SouthWest';
+import ShuffleIcon from '@mui/icons-material/Shuffle';
 import { BoidsParameters, BoidsState, BoundaryMode } from '../../utils/boids';
 import React from 'react';
 
@@ -685,8 +686,18 @@ export const EnhancedBoidsControls = ({
                 max={1}
                 step={0.05}
                 onChange={handleSliderChange('noiseStrength')}
-                tooltip="Randomness added to movement to prevent rigid alignment"
+                tooltip="Randomness added to movement for organic behavior"
                 icon={<GrainIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
+              />
+              <CompactSlider
+                label="Rebels"
+                value={(state.parameters.rebelChance ?? 0.05) * 100}
+                min={0}
+                max={30}
+                step={1}
+                onChange={(_e, v) => onParameterChange({ rebelChance: (v as number) / 100 })}
+                tooltip="Percentage of boids that ignore flocking rules and move independently"
+                icon={<ShuffleIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
               <CompactSlider
                 label="Max Speed"

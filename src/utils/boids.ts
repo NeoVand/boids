@@ -38,6 +38,11 @@ export interface BoidsParameters {
   maxSpeed: number;
   maxForce: number;
   noiseStrength: number;
+  /**
+   * Percentage of boids that ignore flocking rules and move randomly (0-1).
+   * Creates more organic, realistic behavior.
+   */
+  rebelChance: number;
   edgeBehavior: 'wrap' | 'bounce';
   edgeMargin: number;
   boundaryMode: BoundaryMode;
@@ -92,6 +97,7 @@ export const DEFAULT_PARAMETERS: BoidsParameters = {
   maxSpeed: 3.0,
   maxForce: 0.1,
   noiseStrength: 0.35,
+  rebelChance: 0.02, // 2% of boids ignore flocking rules
   edgeBehavior: 'bounce',
   edgeMargin: 50,
   boundaryMode: 'plane',
