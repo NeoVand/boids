@@ -5,10 +5,15 @@ import { EnhancedBoidsControls } from '../controls/EnhancedBoidsControls';
 import { createBoid, createInitialState, updateBoidsInPlace, BoidsState, BoidsParameters, DEFAULT_PARAMETERS } from '../../utils/boids';
 
 export const EnhancedBoidsSimulation = () => {
-  const getViewportSize = () => ({
-    width: window.visualViewport?.width ?? window.innerWidth,
-    height: window.visualViewport?.height ?? window.innerHeight,
-  });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const getViewportSize = () => {
+    const width = window.visualViewport?.width ?? window.innerWidth;
+    const height = window.visualViewport?.height ?? window.innerHeight;
+    return {
+      width: Math.max(1, Math.floor(width)),
+      height: Math.max(1, Math.floor(height)),
+    };
+  };
   
   // GPU mode - uses OptimizedGPUCanvas for both simulation AND rendering on GPU
   const [useGPU, setUseGPU] = useState(true);
@@ -202,11 +207,34 @@ export const EnhancedBoidsSimulation = () => {
     window.addEventListener('resize', handleResize);
     window.visualViewport?.addEventListener('resize', handleResize);
     window.visualViewport?.addEventListener('scroll', handleResize);
+    window.addEventListener('orientationchange', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
       window.visualViewport?.removeEventListener('resize', handleResize);
       window.visualViewport?.removeEventListener('scroll', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
     };
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateFromContainer = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setState(prev => ({
+          ...prev,
+          canvasWidth: Math.floor(rect.width),
+          canvasHeight: Math.floor(rect.height)
+        }));
+      }
+    };
+
+    updateFromContainer();
+    const observer = new ResizeObserver(updateFromContainer);
+    observer.observe(container);
+    return () => observer.disconnect();
   }, []);
 
   // CPU animation loop (only when GPU is disabled)
@@ -304,7 +332,9 @@ export const EnhancedBoidsSimulation = () => {
   }, [state.isRunning, frameInterval, useGPU]);
 
   return (
-    <div style={{ 
+    <div
+      ref={containerRef}
+      style={{ 
       margin: 0, 
       padding: 0, 
       overflow: 'hidden', 
@@ -314,7 +344,9 @@ export const EnhancedBoidsSimulation = () => {
       right: 0, 
       bottom: 0, 
       width: '100dvw', 
-      height: '100dvh' 
+      height: '100dvh',
+      minWidth: '100vw',
+      minHeight: '100vh'
     }}>
       {/* GPU mode: OptimizedGPUCanvas does both simulation AND rendering on GPU
           CPU mode: BoidsCanvas with full visual features (trails, etc.) */}
