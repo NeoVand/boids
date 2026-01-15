@@ -11,7 +11,7 @@ export const BoidsSimulation = () => {
   // Use a single state object for both parameters and state
   const [state, setState] = useState<BoidsState>(() => {
     // Create initial state with more boids and optimized parameters
-    const initialState = createInitialState(2000, canvasWidth, canvasHeight);
+    const initialState = createInitialState(1500, canvasWidth, canvasHeight);
     
     // Keep defaults from DEFAULT_PARAMETERS for consistent initial UX
     initialState.gridCellSize = initialState.parameters.perceptionRadius;

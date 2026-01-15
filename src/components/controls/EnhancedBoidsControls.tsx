@@ -35,7 +35,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import CallSplitIcon from '@mui/icons-material/CallSplit';
 import NorthEastIcon from '@mui/icons-material/NorthEast';
 import SouthWestIcon from '@mui/icons-material/SouthWest';
-import { BoidsParameters, BoidsState } from '../../utils/boids';
+import { BoidsParameters, BoidsState, BoundaryMode } from '../../utils/boids';
 import React from 'react';
 
 interface EnhancedBoidsControlsProps {
@@ -156,6 +156,87 @@ const FieldBlock = ({
     {children}
   </Box>
 );
+
+type EdgeConfig = {
+  left: 'none' | 'up' | 'down';
+  right: 'none' | 'up' | 'down';
+  top: 'none' | 'right' | 'left';
+  bottom: 'none' | 'right' | 'left';
+};
+
+const EDGE_CONFIGS: Record<BoundaryMode, EdgeConfig> = {
+  plane: { left: 'none', right: 'none', top: 'none', bottom: 'none' },
+  cylinderX: { left: 'up', right: 'up', top: 'none', bottom: 'none' },
+  cylinderY: { left: 'none', right: 'none', top: 'right', bottom: 'right' },
+  torus: { left: 'up', right: 'up', top: 'right', bottom: 'right' },
+  mobiusX: { left: 'up', right: 'down', top: 'none', bottom: 'none' },
+  mobiusY: { left: 'none', right: 'none', top: 'right', bottom: 'left' },
+  kleinX: { left: 'up', right: 'down', top: 'right', bottom: 'right' },
+  kleinY: { left: 'up', right: 'up', top: 'right', bottom: 'left' },
+  projectivePlane: { left: 'up', right: 'down', top: 'right', bottom: 'left' },
+};
+
+const BoundaryIcon = ({ mode, size = 18 }: { mode: BoundaryMode; size?: number }) => {
+  const config = EDGE_CONFIGS[mode] ?? EDGE_CONFIGS.plane;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="0.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="5" y="5" width="14" height="14" rx="0.5" />
+
+      {config.left !== 'none' && (
+        config.left === 'up' ? (
+          <>
+            <path d="M3 12 L5 9 L7 12" strokeWidth="0.7" />
+            <path d="M3 15 L5 12 L7 15" strokeWidth="0.7" />
+          </>
+        ) : (
+          <>
+            <path d="M3 9 L5 12 L7 9" strokeWidth="0.7" />
+            <path d="M3 12 L5 15 L7 12" strokeWidth="0.7" />
+          </>
+        )
+      )}
+
+      {config.right !== 'none' && (
+        config.right === 'up' ? (
+          <>
+            <path d="M17 12 L19 9 L21 12" strokeWidth="0.7" />
+            <path d="M17 15 L19 12 L21 15" strokeWidth="0.7" />
+          </>
+        ) : (
+          <>
+            <path d="M17 9 L19 12 L21 9" strokeWidth="0.7" />
+            <path d="M17 12 L19 15 L21 12" strokeWidth="0.7" />
+          </>
+        )
+      )}
+
+      {config.top !== 'none' && (
+        config.top === 'right' ? (
+          <path d="M10 3 L13 5 L10 7" strokeWidth="0.7" />
+        ) : (
+          <path d="M14 3 L11 5 L14 7" strokeWidth="0.7" />
+        )
+      )}
+
+      {config.bottom !== 'none' && (
+        config.bottom === 'right' ? (
+          <path d="M10 17 L13 19 L10 21" strokeWidth="0.7" />
+        ) : (
+          <path d="M14 17 L11 19 L14 21" strokeWidth="0.7" />
+        )
+      )}
+    </svg>
+  );
+};
 
 export const EnhancedBoidsControls = ({
   state,
@@ -304,35 +385,118 @@ export const EnhancedBoidsControls = ({
             }}
           >
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
-              <FieldBlock icon={<CompareArrowsIcon sx={{ fontSize: '0.85rem' }} />} label="Edge">
-                <ToggleButtonGroup
-                  size="small"
-                  exclusive
-                  value={state.parameters.edgeBehavior}
-                  onChange={(_, value) => value && onParameterChange({ edgeBehavior: value as any })}
+              <FieldBlock icon={<CompareArrowsIcon sx={{ fontSize: '0.85rem' }} />} label="Boundry">
+                <MuiSelect
+                  value={state.parameters.boundaryMode || 'plane'}
+                  onChange={(e) => onParameterChange({ boundaryMode: e.target.value as any })}
+                  displayEmpty
                   sx={{
+                    color: chromeText,
+                    fontSize: '0.72rem',
                     width: '100%',
-                    '& .MuiToggleButton-root': {
-                      flex: 1,
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      color: chromeText,
-                      textTransform: 'none',
-                      fontSize: '0.7rem',
-                      px: 0.5,
-                      py: 0.25,
-                      backgroundColor: 'rgba(255,255,255,0.03)',
+                    minWidth: 0,
+                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    borderRadius: 1,
+                    '.MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.08)' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.18)' },
+                    '.MuiSelect-select': {
+                      py: 0.6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     },
-                    '& .MuiToggleButton-root:focus-visible': { outline: 'none' },
-                    '& .Mui-selected': { backgroundColor: 'rgba(140,150,165,0.2)' },
+                  }}
+                  renderValue={(value) => {
+                    const labelMap: Record<string, string> = {
+                      plane: 'Plane (Bounce)',
+                      cylinderX: 'Cylinder X',
+                      cylinderY: 'Cylinder Y',
+                      torus: 'Torus',
+                      mobiusX: 'Mobius X',
+                      mobiusY: 'Mobius Y',
+                      kleinX: 'Klein X',
+                      kleinY: 'Klein Y',
+                      projectivePlane: 'Projective Plane',
+                    };
+                    const mode = (value as BoundaryMode) || 'plane';
+                    return (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, overflow: 'hidden' }}>
+                        <BoundaryIcon mode={mode} size={16} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {labelMap[String(mode)] || String(mode)}
+                        </span>
+                      </Box>
+                    );
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        backgroundColor: 'rgba(20,22,26,0.9)',
+                        backdropFilter: 'blur(12px)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: chromeText,
+                      },
+                    },
                   }}
                 >
-                  <ToggleButton value="wrap">
-                    <CompareArrowsIcon sx={{ fontSize: '0.85rem', mr: 0.5 }} /> Wrap
-                  </ToggleButton>
-                  <ToggleButton value="bounce">
-                    <CallSplitIcon sx={{ fontSize: '0.85rem', mr: 0.5 }} /> Bounce
-                  </ToggleButton>
-                </ToggleButtonGroup>
+                  <MuiMenuItem value="plane">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="plane" />
+                      Plane (Bounce)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="cylinderX">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="cylinderX" />
+                      Cylinder X (Glue L/R)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="cylinderY">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="cylinderY" />
+                      Cylinder Y (Glue T/B)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="torus">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="torus" />
+                      Torus (Glue Both)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="mobiusX">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="mobiusX" />
+                      Mobius X (Flip L/R)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="mobiusY">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="mobiusY" />
+                      Mobius Y (Flip T/B)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="kleinX">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="kleinX" />
+                      Klein X (Flip L/R, Glue T/B)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="kleinY">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="kleinY" />
+                      Klein Y (Flip T/B, Glue L/R)
+                    </Box>
+                  </MuiMenuItem>
+                  <MuiMenuItem value="projectivePlane">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <BoundaryIcon mode="projectivePlane" />
+                      Projective Plane (Flip Both)
+                    </Box>
+                  </MuiMenuItem>
+                </MuiSelect>
               </FieldBlock>
 
               <FieldBlock icon={<PaletteIcon sx={{ fontSize: '0.85rem' }} />} label="Colorize">
@@ -528,7 +692,7 @@ export const EnhancedBoidsControls = ({
                 label="Max Speed"
                 value={state.parameters.maxSpeed}
                 min={0.5}
-                max={15}
+                max={10}
                 step={0.5}
                 onChange={handleSliderChange('maxSpeed')}
                 tooltip="Maximum velocity of boids"
@@ -558,7 +722,7 @@ export const EnhancedBoidsControls = ({
                 label="Tail Length"
                 value={state.parameters.trailLength}
                 min={5}
-                max={300}
+                max={100}
                 step={1}
                 onChange={handleSliderChange('trailLength')}
                 tooltip="Previous positions kept per boid"
@@ -568,10 +732,10 @@ export const EnhancedBoidsControls = ({
                 label="Population"
                 value={boidsCount}
                 min={10}
-                max={gpuEnabled ? 50000 : 5000}
-                step={gpuEnabled ? 100 : 10}
+                max={10000}
+                step={100}
                 onChange={handleBoidsCountChange}
-                tooltip={`Number of boids to simulate (max: ${gpuEnabled ? '50k' : '5k'})`}
+                tooltip={`Number of boids to simulate (max: 10k)`}
                 icon={<GroupsIcon sx={{ fontSize: '0.85rem', color: chromeText }} />}
               />
             </Box>

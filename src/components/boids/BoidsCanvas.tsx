@@ -6,6 +6,8 @@ interface BoidsCanvasProps {
   className?: string;
   onCursorPositionChange?: (position: { x: number; y: number } | null) => void;
   onAttractionStateChange?: (isAttracting: boolean) => void;
+  /** Force Canvas2D rendering for full visual features (trails, etc.) */
+  forceCanvas2D?: boolean;
 }
 
 // Simple WebGL shaders for robust point rendering
@@ -149,7 +151,8 @@ export const BoidsCanvas = ({
   state, 
   className = '',
   onCursorPositionChange,
-  onAttractionStateChange
+  onAttractionStateChange,
+  forceCanvas2D = false
 }: BoidsCanvasProps) => {
   const stateRef = useRef(state);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -195,7 +198,15 @@ export const BoidsCanvas = ({
     stateRef.current = state;
   }, [state]);
   
-  const [useWebGL, setUseWebGL] = useState(true); // Use WebGL for better performance
+  // Use WebGL for better performance, unless forceCanvas2D is set
+  const [useWebGL, setUseWebGL] = useState(!forceCanvas2D);
+  
+  // Update useWebGL if forceCanvas2D prop changes
+  useEffect(() => {
+    if (forceCanvas2D) {
+      setUseWebGL(false);
+    }
+  }, [forceCanvas2D]);
   const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
   
   // Generate a color palette for boids based on the primary color
@@ -951,11 +962,11 @@ const renderBoidsCanvas2D = (
     return;
   }
   
-  // Clear the canvas
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  
-  // Set a simple fill style for debugging
-  ctx.fillStyle = '#4169e1';
+  // Clear the canvas with dark background
+  ctx.globalAlpha = 1.0;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   
   // Draw a test circle to verify Canvas2D is working
   // ctx.beginPath();

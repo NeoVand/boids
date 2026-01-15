@@ -1,31 +1,42 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { BoidsCanvas } from './BoidsCanvas';
+import { OptimizedGPUCanvas, PerformanceStats } from './OptimizedGPUCanvas';
 import { EnhancedBoidsControls } from '../controls/EnhancedBoidsControls';
 import { createBoid, createInitialState, updateBoidsInPlace, BoidsState, BoidsParameters } from '../../utils/boids';
+
+export interface PerformanceStats {
+  fps: number;
+  frameTime: number;
+  boidCount: number;
+}
 
 export const EnhancedBoidsSimulation = () => {
   // Use full screen dimensions for canvas
   const canvasWidth = window.innerWidth;
   const canvasHeight = window.innerHeight;
   
+  // GPU mode - uses OptimizedGPUCanvas for both simulation AND rendering on GPU
+  const [useGPU, setUseGPU] = useState(true);
+  
   // Performance tracking
-  const [performanceStats, setPerformanceStats] = useState({
+  const [performanceStats, setPerformanceStats] = useState<PerformanceStats>({
     fps: 0,
     frameTime: 0,
-    boidCount: 0
+    boidCount: 0,
+    gpuMode: 'webgl2',
+    simulationTime: 0,
+    renderTime: 0
   });
   
   // Use a single state object for both parameters and state
   const [state, setState] = useState<BoidsState>(() => {
     // Create initial state with reasonable number of boids
-    const initialState = createInitialState(2000, canvasWidth, canvasHeight);
+    const initialBoidCount = 1500;
+    const initialState = createInitialState(initialBoidCount, canvasWidth, canvasHeight);
     
     // Keep defaults from DEFAULT_PARAMETERS for consistent initial UX
     initialState.gridCellSize = initialState.parameters.perceptionRadius;
     initialState.particleType = 'disk';
-    
-    // console.log('Initial state created with', initialState.boids.length, 'boids');
-    // console.log('Initial state isRunning:', initialState.isRunning);
     
     return initialState;
   });
@@ -33,25 +44,25 @@ export const EnhancedBoidsSimulation = () => {
   // State for controls panel collapsed state
   const [isControlsCollapsed, setIsControlsCollapsed] = useState(true);
 
-  // Use refs for values that need to be accessed in animation loop (CPU mode only)
+  // Use refs for values that need to be accessed in animation loop
   const stateRef = useRef(state);
   const attractingRef = useRef(false);
   const cursorPositionRef = useRef<{ x: number, y: number } | null>(null);
   
-  // Animation frame tracking (CPU mode only)
+  // Animation frame tracking
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
   const targetFPS = 60;
   const frameInterval = 1000 / targetFPS;
   
-  // Performance tracking (CPU mode only)
+  // Performance tracking
   const fpsCounterRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(0);
   const currentFpsRef = useRef<number>(0);
   const frameTimeSumRef = useRef<number>(0);
   const frameTimeCountRef = useRef<number>(0);
   
-  // Update the ref whenever state changes (CPU mode only)
+  // Update the ref whenever state changes
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -70,22 +81,27 @@ export const EnhancedBoidsSimulation = () => {
   // Handle cursor position updates
   const handleCursorPositionChange = useCallback((position: { x: number; y: number } | null) => {
     cursorPositionRef.current = position;
+    setState(prev => ({
+      ...prev,
+      cursorPosition: position
+    }));
   }, []);
 
   // Handle attraction boost (mouse down)
   const handleAttractionStateChange = useCallback((isAttracting: boolean) => {
     attractingRef.current = isAttracting;
+    setState(prev => ({
+      ...prev,
+      isAttracting
+    }));
   }, []);
 
   // Toggle running state
   const handleToggleRunning = useCallback(() => {
-    setState(prev => {
-      const newIsRunning = !prev.isRunning;
-      return {
-        ...prev,
-        isRunning: newIsRunning
-      };
-    });
+    setState(prev => ({
+      ...prev,
+      isRunning: !prev.isRunning
+    }));
   }, []);
 
   // Toggle controls panel collapsed state
@@ -119,7 +135,6 @@ export const EnhancedBoidsSimulation = () => {
 
   // Handle population change
   const handlePopulationChange = useCallback((count: number) => {
-    // console.log('Population change requested:', count);
     setState(prev => {
       const newBoids = [...prev.boids];
       
@@ -157,6 +172,16 @@ export const EnhancedBoidsSimulation = () => {
     });
   }, []);
 
+  // Toggle GPU mode
+  const handleToggleGPU = useCallback(() => {
+    setUseGPU(prev => !prev);
+  }, []);
+
+  // Handle performance updates from GPU canvas
+  const handlePerformanceUpdate = useCallback((stats: PerformanceStats) => {
+    setPerformanceStats(stats);
+  }, []);
+
   // Update canvas dimensions on window resize
   useEffect(() => {
     const handleResize = () => {
@@ -173,6 +198,15 @@ export const EnhancedBoidsSimulation = () => {
 
   // CPU animation loop (only when GPU is disabled)
   useEffect(() => {
+    // Skip CPU animation if using GPU mode - OptimizedGPUCanvas handles everything
+    if (useGPU) {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      return;
+    }
+
     if (!state.isRunning) {
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -199,11 +233,14 @@ export const EnhancedBoidsSimulation = () => {
         frameTimeSumRef.current = 0;
         frameTimeCountRef.current = 0;
 
-        // Update performance stats (throttled to ~1Hz to avoid heavy React/MUI work every frame)
+        // Update performance stats (throttled to ~1Hz)
         setPerformanceStats({
           fps,
           frameTime: avgFrameTime,
           boidCount: stateRef.current.boids.length,
+          gpuMode: 'cpu',
+          simulationTime: 0,
+          renderTime: 0
         });
         
         // Adjust simulation complexity based on FPS
@@ -214,7 +251,7 @@ export const EnhancedBoidsSimulation = () => {
         }
       }
       
-      // Performance optimization: skip frames if needed 
+      // Performance optimization: skip frames if needed
       updateCounter++;
       if (updateCounter % (skippedFrames + 1) !== 0) {
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -229,7 +266,7 @@ export const EnhancedBoidsSimulation = () => {
         frameTimeSumRef.current += frameTime;
         frameTimeCountRef.current += 1;
 
-        // In-place tick: avoid per-frame React state updates (major perf win)
+        // Update cursor state and run CPU simulation
         stateRef.current.isAttracting = attractingRef.current;
         stateRef.current.cursorPosition = cursorPositionRef.current;
         updateBoidsInPlace(stateRef.current);
@@ -251,7 +288,7 @@ export const EnhancedBoidsSimulation = () => {
         animationFrameRef.current = null;
       }
     };
-  }, [state.isRunning, frameInterval]);
+  }, [state.isRunning, frameInterval, useGPU]);
 
   return (
     <div style={{ 
@@ -266,15 +303,24 @@ export const EnhancedBoidsSimulation = () => {
       width: '100vw', 
       height: '100vh' 
     }}>
-      {/* Always use the regular BoidsCanvas which has WebGL rendering with CPU simulation */}
-      <BoidsCanvas 
-        state={state}
-        className="w-full h-full" 
-        onCursorPositionChange={handleCursorPositionChange}
-        onAttractionStateChange={handleAttractionStateChange}
-      />
-      
-      {/* Note: GPU mode temporarily disabled due to complexity - WebGL rendering is still used for performance */}
+      {/* GPU mode: OptimizedGPUCanvas does both simulation AND rendering on GPU
+          CPU mode: BoidsCanvas with full visual features (trails, etc.) */}
+      {useGPU ? (
+        <OptimizedGPUCanvas 
+          state={state}
+          className="w-full h-full" 
+          onCursorPositionChange={handleCursorPositionChange}
+          onAttractionStateChange={handleAttractionStateChange}
+          onPerformanceUpdate={handlePerformanceUpdate}
+        />
+      ) : (
+        <BoidsCanvas 
+          state={state}
+          className="w-full h-full" 
+          onCursorPositionChange={handleCursorPositionChange}
+          onAttractionStateChange={handleAttractionStateChange}
+        />
+      )}
       
       {/* Enhanced controls panel in top right corner */}
       <div 
@@ -295,12 +341,10 @@ export const EnhancedBoidsSimulation = () => {
           onPopulationChange={handlePopulationChange}
           onColorizationChange={handleColorizationChange}
           performanceStats={performanceStats}
-          gpuEnabled={false}
-          onToggleGPU={undefined}
+          gpuEnabled={useGPU}
+          onToggleGPU={handleToggleGPU}
         />
       </div>
-      
-      {/* Attraction Indicator removed per UI request */}
     </div>
   );
-}; 
+};

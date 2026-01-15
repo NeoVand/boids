@@ -40,6 +40,7 @@ export interface BoidsParameters {
   noiseStrength: number;
   edgeBehavior: 'wrap' | 'bounce';
   edgeMargin: number;
+  boundaryMode: BoundaryMode;
   trailLength: number;
   attractionForce: number;
   attractionMode: 'off' | 'attract' | 'repel';
@@ -53,6 +54,16 @@ export interface BoidsParameters {
 }
 
 export type ParticleType = 'disk' | 'trail' | 'arrow' | 'dot';
+export type BoundaryMode =
+  | 'plane'
+  | 'cylinderX'
+  | 'cylinderY'
+  | 'torus'
+  | 'mobiusX'
+  | 'mobiusY'
+  | 'kleinX'
+  | 'kleinY'
+  | 'projectivePlane';
 
 export interface BoidsState {
   boids: Boid[];
@@ -78,12 +89,13 @@ export const DEFAULT_PARAMETERS: BoidsParameters = {
   cohesionForce: 1.0,
   separationForce: 1.0,
   perceptionRadius: 50,
-  maxSpeed: 5.0,
+  maxSpeed: 3.0,
   maxForce: 0.1,
   noiseStrength: 0.35,
-  edgeBehavior: 'wrap',
+  edgeBehavior: 'bounce',
   edgeMargin: 50,
-  trailLength: 150,
+  boundaryMode: 'plane',
+  trailLength: 30,
   attractionForce: 0.5,
   attractionMode: 'attract',
   colorSpectrum: 'chrome',
@@ -597,68 +609,86 @@ export const handleEdges = (
   parameters: BoidsParameters
 ): void => {
   const { position, velocity } = boid;
-  const { edgeBehavior } = parameters;
-  
-  // Flag to detect if wrapping occurred (so we can break the tail at the seam)
-  let didWrap = false;
+  const mode = parameters.boundaryMode || (parameters.edgeBehavior === 'wrap' ? 'torus' : 'plane');
 
-  if (edgeBehavior === 'wrap') {
-    // Wrap around the edges
+  const glueX =
+    mode === 'cylinderX' ||
+    mode === 'torus' ||
+    mode === 'mobiusX' ||
+    mode === 'kleinX' ||
+    mode === 'kleinY' ||
+    mode === 'projectivePlane';
+  const glueY =
+    mode === 'cylinderY' ||
+    mode === 'torus' ||
+    mode === 'mobiusY' ||
+    mode === 'kleinX' ||
+    mode === 'kleinY' ||
+    mode === 'projectivePlane';
+  const flipX = mode === 'mobiusY' || mode === 'kleinY' || mode === 'projectivePlane';
+  const flipY = mode === 'mobiusX' || mode === 'kleinX' || mode === 'projectivePlane';
+
+  let wrapped = false;
+  let bounced = false;
+
+  const wrapX = (flip: boolean) => {
     if (position.x < 0) {
       position.x = canvasWidth;
-      didWrap = true;
+      if (flip) {
+        position.y = canvasHeight - position.y;
+        velocity.y *= -1;
+      }
+      wrapped = true;
+    } else if (position.x > canvasWidth) {
+      position.x = 0;
+      if (flip) {
+        position.y = canvasHeight - position.y;
+        velocity.y *= -1;
+      }
+      wrapped = true;
     }
+  };
+
+  const wrapY = (flip: boolean) => {
     if (position.y < 0) {
       position.y = canvasHeight;
-      didWrap = true;
-    }
-    if (position.x > canvasWidth) {
-      position.x = 0;
-      didWrap = true;
-    }
-    if (position.y > canvasHeight) {
+      if (flip) {
+        position.x = canvasWidth - position.x;
+        velocity.x *= -1;
+      }
+      wrapped = true;
+    } else if (position.y > canvasHeight) {
       position.y = 0;
-      didWrap = true;
-    }
-    
-    // Do NOT clear the whole tail. Instead, insert a "break" marker so render skips
-    // the segment that would otherwise draw across the entire screen.
-    if (didWrap) {
-      boid.tailCount = Math.min(boid.tailCount, boid.tailCapacity);
-      // NaN marker
-      if (boid.tailCapacity > 0) {
-        boid.tailX[boid.tailHead] = Number.NaN;
-        boid.tailY[boid.tailHead] = Number.NaN;
-        boid.tailHead = (boid.tailHead + 1) % boid.tailCapacity;
-        boid.tailCount = Math.min(boid.tailCount + 1, boid.tailCapacity);
+      if (flip) {
+        position.x = canvasWidth - position.x;
+        velocity.x *= -1;
       }
+      wrapped = true;
     }
-  } else if (edgeBehavior === 'bounce') {
-    // Bounce off the edges
-    let bounced = false;
-    
-    if (position.x < 0 || position.x > canvasWidth) {
-      velocity.x *= -1;
-      bounced = true;
-    }
-    if (position.y < 0 || position.y > canvasHeight) {
-      velocity.y *= -1;
-      bounced = true;
-    }
-    
-    // Ensure we're inside the canvas
+  };
+
+  if (glueX) {
+    wrapX(flipY);
+  } else if (position.x < 0 || position.x > canvasWidth) {
+    velocity.x *= -1;
+    bounced = true;
     position.x = Math.max(0, Math.min(position.x, canvasWidth));
+  }
+
+  if (glueY) {
+    wrapY(flipX);
+  } else if (position.y < 0 || position.y > canvasHeight) {
+    velocity.y *= -1;
+    bounced = true;
     position.y = Math.max(0, Math.min(position.y, canvasHeight));
-    
-    // Same idea as wrap: break the tail so we don't draw a long segment through the bounce.
-    if (bounced) {
-      if (boid.tailCapacity > 0) {
-        boid.tailX[boid.tailHead] = Number.NaN;
-        boid.tailY[boid.tailHead] = Number.NaN;
-        boid.tailHead = (boid.tailHead + 1) % boid.tailCapacity;
-        boid.tailCount = Math.min(boid.tailCount + 1, boid.tailCapacity);
-      }
-    }
+  }
+
+  // Break tail at seam
+  if ((wrapped || bounced) && boid.tailCapacity > 0) {
+    boid.tailX[boid.tailHead] = Number.NaN;
+    boid.tailY[boid.tailHead] = Number.NaN;
+    boid.tailHead = (boid.tailHead + 1) % boid.tailCapacity;
+    boid.tailCount = Math.min(boid.tailCount + 1, boid.tailCapacity);
   }
 };
 
